@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>PWA Icon Generator</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f4f6f9; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center; max-width: 320px; }
+        button { background: #e3000f; color: white; border: none; padding: 14px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 15px; width: 100%; }
+        button:active { transform: scale(0.98); }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Генератор іконок PWA</h2>
+    <p>Натисніть кнопку, щоб завантажити обидва файли <b>icon-192.png</b> та <b>icon-512.png</b>.</p>
+    <button onclick="downloadIcons()">Завантажити іконки 📥</button>
+</div>
+
+<canvas id="canvas" style="display:none;"></canvas>
+
+<script>
+    function drawIcon(size) {
+        const canvas = document.getElementById('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // Фон #e3000f
+        ctx.fillStyle = '#e3000f';
+        ctx.fillRect(0, 0, size, size);
+
+        // Корпус калькулятора (білий з прозорістю або суцільний)
+        const scale = size / 512;
+        
+        ctx.fillStyle = '#ffffff';
+        // Екран
+        ctx.roundRect(128 * scale, 100 * scale, 256 * scale, 70 * scale, 12 * scale);
+        ctx.fill();
+
+        // Кнопки
+        const btnSize = 65 * scale;
+        const gap = 30 * scale;
+        const startX = 128 * scale;
+        const startY = 210 * scale;
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 3; col++) {
+                ctx.beginPath();
+                ctx.roundRect(startX + col * (btnSize + gap/2), startY + row * (btnSize + gap/2), btnSize, btnSize, 10 * scale);
+                ctx.fill();
+            }
+        }
+
+        // Текст 'zł' на екрані
+        ctx.fillStyle = '#e3000f';
+        ctx.font = `bold ${42 * scale}px sans-serif`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('zł', (128 + 256 - 20) * scale, (100 + 35) * scale);
+
+        return canvas.toDataURL('image/png');
+    }
+
+    function downloadURI(uri, name) {
+        const link = document.createElement("a");
+        link.download = name;
+        link.href = uri;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function downloadIcons() {
+        downloadURI(drawIcon(192), "icon-192.png");
+        setTimeout(() => {
+            downloadURI(drawIcon(512), "icon-512.png");
+        }, 300);
+    }
+</script>
+</body>
+</html>
