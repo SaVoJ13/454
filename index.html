@@ -35,7 +35,7 @@
 <nav class="tabs" data-i18n-aria="ariaNav" aria-label="Навігація">
 <button type="button" class="tab" data-page="1" aria-current="page"><svg aria-hidden="true" class="icon"><use href="#i-calc"/></svg><span data-i18n="navCalc">Розрахунок</span></button>
 <button type="button" class="tab" data-page="2"><svg aria-hidden="true" class="icon"><use href="#i-doc"/></svg><span data-i18n="navDetails">Деталі</span></button>
-<button type="button" class="tab" data-page="3"><svg aria-hidden="true" class="icon"><use href="#i-chart"/></svg><span data-i18n="navStats">Рік</span></button>
+<button type="button" class="tab" data-page="3"><svg aria-hidden="true" class="icon"><use href="#i-chart"/></svg><span data-i18n="navStats">Статистика</span></button>
 <button type="button" class="tab" data-page="4"><svg aria-hidden="true" class="icon"><use href="#i-user"/></svg><span data-i18n="navProfile">Профіль</span></button>
 <button type="button" class="tab" data-page="5"><svg aria-hidden="true" class="icon"><use href="#i-set"/></svg><span data-i18n="navSettingsTab">Параметри</span></button></nav>
 <div class="seg" role="group" data-i18n-aria="ariaLangGrp" aria-label="Мова"><button type="button" data-lang="uk" lang="uk">UA</button><button type="button" data-lang="pl" lang="pl">PL</button></div>
@@ -144,26 +144,34 @@
 </section></div></div></section>
 
 <section class="view" id="viewStats">
-<h2 class="vt" data-i18n="navStats">Рік</h2><div class="layout one"><div class="forms">
-<div class="card period"><button type="button" class="icon-btn" id="btn-year-prev" data-year-step="-1" data-i18n-aria="ariaPrevYear" aria-label="Попередній рік"><svg aria-hidden="true" class="icon"><use href="#i-l"/></svg></button>
-<div class="year-label" id="statsYear" aria-live="polite"></div>
-<button type="button" class="icon-btn" id="btn-year-next" data-year-step="1" data-i18n-aria="ariaNextYear" aria-label="Наступний рік"><svg aria-hidden="true" class="icon"><use href="#i-r"/></svg></button></div>
-<p class="note hidden" id="statsEmpty" data-i18n="statsEmpty">За цей рік немає збережених місяців. Збережіть місяць у калькуляторі, і тут з'явиться статистика.</p>
+<h2 class="vt" data-i18n="navStats">Статистика</h2><div class="layout one"><div class="forms">
+<div class="card filter">
+<div class="pills" id="periodPills" role="group" data-i18n-aria="statsPeriodAria" aria-label="Період">
+<button type="button" class="pill" data-mode="3" aria-pressed="false" data-i18n="period3">3 міс.</button>
+<button type="button" class="pill" data-mode="6" aria-pressed="false" data-i18n="period6">6 міс.</button>
+<button type="button" class="pill" data-mode="12" aria-pressed="false" data-i18n="period12">12 міс.</button>
+<button type="button" class="pill" data-mode="years" aria-pressed="false" data-i18n="periodYears">Роки</button></div>
+<div class="pills hidden" id="yearPills" role="group" data-i18n-aria="statsYearsAria" aria-label="Роки"></div>
+<p class="card-sub" id="periodRange" aria-live="polite"></p></div>
+<details class="card missing hidden" id="statsMissing"><summary id="statsMissingTitle"></summary>
+<p class="card-sub" data-i18n="statsMissingHint">Ці місяці ще не збережені, тому в підсумок не входять.</p>
+<ul class="missing-list" id="statsMissingList"></ul></details>
+<p class="note hidden" id="statsEmpty" data-i18n="statsEmpty">За вибраний період немає збережених місяців. Збережіть місяць у калькуляторі, і тут з'явиться статистика.</p>
 <div class="forms" id="statsBody">
-<section class="card"><h3 data-i18n="statsTotals">Підсумок за рік</h3>
+<section class="card"><h3 data-i18n="statsTotals">Підсумок за період</h3>
 <div class="row"><span data-i18n="statsGross">Брутто</span><b id="statsGrossVal">-</b></div>
 <div class="row net"><span data-i18n="statsNet">Нетто</span><b id="statsNetVal">-</b></div>
 <div class="row"><span data-i18n="statsAvgNet">Середнє нетто за місяць</span><b id="statsAvgVal">-</b></div>
 <div class="row"><span data-i18n="statsBest">Найвище нетто</span><b id="statsBestVal">-</b></div>
 <div class="row"><span data-i18n="statsCount">Місяців із даними</span><b id="statsCountVal">-</b></div></section>
-<section class="card"><h3 data-i18n="statsIncome">Дохід по місяцях</h3>
+<section class="card"><h3 id="statsIncomeTitle" data-i18n="statsIncome">Дохід по місяцях</h3>
 <div class="chart-host" id="incomeChart"></div>
 <div class="legend"><span><i class="chip chip-gross"></i><span data-i18n="statsGross">Брутто</span></span><span><i class="chip chip-net"></i><span data-i18n="statsNet">Нетто</span></span></div>
 <p class="card-sub" id="statsPick"></p></section>
 <section class="card"><h3 data-i18n="statsMix">Структура змін</h3>
 <div class="chart-host mix-host" id="mixChart"></div>
 <ul class="mix-legend" id="mixLegend"></ul></section>
-<p class="card-sub" data-i18n="statsNote">Враховано збережені місяці року.</p>
+<p class="card-sub" data-i18n="statsNote">Враховано збережені місяці періоду.</p>
 </div></div></div></section>
 </main>
 
