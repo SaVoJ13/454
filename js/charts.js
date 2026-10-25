@@ -31,12 +31,15 @@ export function axisLabel(v) {
   return v >= 1000 ? `${+(v / 1000).toFixed(1)}k` : String(Math.round(v));
 }
 
-/* Стовпчики «брутто / нетто» по місяцях. months: [{ month 1..12, has, gross, net }].
-   o: { labels[12], selected (номер місяця), ariaLabel, pickLabel(month), onPick(monthNumber) } */
-export function drawIncomeChart(doc, host, months, o = {}) {
-  const W = 360, H = 210, L = 36, R = 6, T = 10, B = 24;
-  const plotW = W - L - R, plotH = H - T - B, slot = plotW / 12;
-  const maxVal = Math.max(0, ...months.map(m => Math.max(m.gross, m.net)));
+/* Стовпчики «брутто / нетто». buckets — довільна кількість (3, 6, 12 місяців або роки): [{ key, has, gross, net }].
+   o: { labels[], subLabels[] (другий рядок підпису, напр. рік під січнем; може бути пустим), selected (key),
+        ariaLabel, pickLabel(bucket), onPick(key) } */
+export function drawIncomeChart(doc, host, buckets, o = {}) {
+  const hasSub = Array.isArray(o.subLabels) && o.subLabels.some(Boolean);
+  const W = 360, H = 210, L = 36, R = 6, T = 10, B = hasSub ? 34 : 24;
+  const n = Math.max(1, buckets.length);
+  const plotW = W - L - R, plotH = H - T - B, slot = plotW / n;
+  const maxVal = Math.max(0, ...buckets.map(m => Math.max(m.gross, m.net)));
   const { step, max, ticks } = niceScale(maxVal);
   const svg = svgEl(doc, 'svg', { class: 'chart income-chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': o.ariaLabel || '' });
 
@@ -46,9 +49,10 @@ export function drawIncomeChart(doc, host, months, o = {}) {
     svg.appendChild(svgEl(doc, 'text', { class: 'axis', x: L - 4, y: r1(y + 3.5), 'text-anchor': 'end' }, axisLabel(step * i)));
   }
 
-  const barW = Math.min(10, slot * 0.36);
-  months.forEach((mo, i) => {
-    const x0 = L + i * slot, selected = o.selected === mo.month;
+  const barW = Math.min(18, slot * 0.36);
+  buckets.forEach((mo, i) => {
+    const key = mo.key !== undefined ? mo.key : mo.month;
+    const x0 = L + i * slot, selected = o.selected !== undefined && o.selected !== null && o.selected === key;
     const g = svgEl(doc, 'g', { class: 'bar-group' + (mo.has ? '' : ' empty') + (selected ? ' sel' : '') });
     if (selected) g.appendChild(svgEl(doc, 'rect', { class: 'sel-bg', x: r1(x0 + 1), y: T, width: r1(slot - 2), height: plotH, rx: 3 }));
     if (mo.has) {
@@ -57,14 +61,15 @@ export function drawIncomeChart(doc, host, months, o = {}) {
       g.appendChild(svgEl(doc, 'rect', { class: 'bar-gross', x: r1(gx), y: r1(T + plotH - hg), width: r1(barW), height: r1(hg), rx: 1.5 }));
       g.appendChild(svgEl(doc, 'rect', { class: 'bar-net', x: r1(gx + barW + 2), y: r1(T + plotH - hn), width: r1(barW), height: r1(hn), rx: 1.5 }));
     }
-    g.appendChild(svgEl(doc, 'text', { class: 'axis' + (mo.has ? '' : ' dim'), x: r1(x0 + slot / 2), y: H - 8, 'text-anchor': 'middle' },
-      o.labels ? o.labels[i] : String(mo.month)));
+    g.appendChild(svgEl(doc, 'text', { class: 'axis' + (mo.has ? '' : ' dim'), x: r1(x0 + slot / 2), y: hasSub ? H - 18 : H - 8, 'text-anchor': 'middle' },
+      o.labels ? o.labels[i] : String(key)));
+    if (hasSub && o.subLabels[i]) g.appendChild(svgEl(doc, 'text', { class: 'axis sub', x: r1(x0 + slot / 2), y: H - 6, 'text-anchor': 'middle' }, o.subLabels[i]));
     // область дотику на всю висоту стовпця (зручно пальцем) + клавіатура
     const hit = svgEl(doc, 'rect', { class: 'hit', x: r1(x0), y: T, width: r1(slot), height: plotH + B, tabindex: 0, role: 'button',
-      'aria-label': o.pickLabel ? o.pickLabel(mo) : String(mo.month) });
+      'aria-label': o.pickLabel ? o.pickLabel(mo) : String(key) });
     if (o.onPick) {
-      hit.addEventListener('click', () => o.onPick(mo.month));
-      hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { if (e.preventDefault) e.preventDefault(); o.onPick(mo.month); } });
+      hit.addEventListener('click', () => o.onPick(key));
+      hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { if (e.preventDefault) e.preventDefault(); o.onPick(key); } });
     }
     g.appendChild(hit);
     svg.appendChild(g);

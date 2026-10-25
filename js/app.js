@@ -3,7 +3,7 @@ import { CONFIG, getNormHours, stateDaysFor, getMinWage, compute, computeDailyUr
 import { formatPLN, showToast } from './utils.js';
 import { saveMonthCache, loadMonthCache, clearMonthCache, listMonthCache } from './monthcache.js';
 import { pitBaseOf, pitExtra, yearToDate } from './pit.js';
-import { collectYearStats, readGuestRecords, yearsIn, defaultYear } from './stats.js';
+import { collectPeriodStats, readGuestRecords, availableYears, normalizePeriod } from './stats.js';
 import { drawIncomeChart, drawMixChart, drawMixLegend } from './charts.js';
 
 /* Лише для тестів: tests/cloud.mjs підставляє фейковий Firebase і короткий таймаут. У браузері не задано. */
@@ -152,7 +152,7 @@ window.switchPage = function(page) {
   VIEW_IDS.forEach((id, i) => document.getElementById(id).classList.toggle('active', i + 1 === page));
   document.querySelectorAll('.tab').forEach(b => { if (Number(b.dataset.page) === page) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   window.scrollTo(0, 0);
-  if (page === 3) renderStats().catch(e => console.warn('Статистика:', e));     // дані читаємо щоразу при відкритті вкладки «Рік»
+  if (page === 3) renderStats().catch(e => console.warn('Статистика:', e));     // дані читаємо щоразу при відкритті вкладки «Статистика»
 };
 
 function refreshPeriod() {
@@ -225,8 +225,8 @@ async function handleAuthState(user) {
     loadLocalGuestData();
   }
   calculateSalary();
-  statsYear = null; statsLast = null;                                   // інше джерело даних — вибір року починаємо заново
-  if (currentActivePage === 3) renderStats({ resetYear: true }).catch(e => console.warn('Статистика:', e));
+  statsLast = null; statsPeriod = DEFAULT_PERIOD(); statsPick = null;  // інше джерело даних — вибір періоду починаємо заново
+  if (currentActivePage === 3) renderStats({ reset: true }).catch(e => console.warn('Статистика:', e));
 }
 
 function fillFrom(d) {
@@ -658,12 +658,15 @@ document.getElementById('auth-form').addEventListener('submit', e => e.preventDe
 document.getElementById('langSelect').addEventListener('change', e => window.setLang(e.target.value));
 document.getElementById('themeSelect').addEventListener('change', e => window.setTheme(e.target.value));
 
-/* ВКЛАДКА «РІК»: статистика за збережені місяці року (цифри рахують ті самі calc.js + pit.js, що й калькулятор).
+/* ВКЛАДКА «СТАТИСТИКА»: підсумки за період (цифри рахують ті самі calc.js + pit.js, що й калькулятор).
+   Період: останні 3/6/12 місяців або вибрані роки. Майбутніх місяців немає: максимум — поточний.
    Джерело: гість — guest_month_* у localStorage; акаунт — хмара, а без мережі локальні копії місяців. */
-let statsYear = null;      // вибраний рік (null — ще не вибирали)
-let statsPick = null;      // вибраний на графіку місяць 1..12
+const DEFAULT_PERIOD = () => ({ mode: '12', years: [] });
+let statsPeriod = DEFAULT_PERIOD();   // { mode: '3'|'6'|'12'|'years', years: [] }
+let statsPick = null;      // вибраний на графіку стовпчик (key)
 let statsToken = 0;        // відкидає застарілі відповіді при швидкому перемиканні вкладок
-let statsLast = null;      // { years, stats } — щоб перемальовувати (мова, вибір місяця) без повторного читання даних
+let statsLast = null;      // { years, stats } — щоб перемальовувати (мова, вибір стовпчика) без повторного читання даних
+const statsNow = () => (TEST.now !== undefined ? new Date(TEST.now) : new Date());   // «сьогодні»; у тестах підміняється
 
 async function gatherStatsRecords() {
   if (!auth.currentUser) return readGuestRecords(localStorage);
@@ -675,44 +678,85 @@ async function gatherStatsRecords() {
   return records;
 }
 
-async function renderStats({ resetYear = false } = {}) {
+async function renderStats({ reset = false } = {}) {
   const token = ++statsToken;
   const records = await gatherStatsRecords();
   if (token !== statsToken) return;
-  const nowYear = new Date().getFullYear();
-  const years = yearsIn(records, nowYear);
-  if (resetYear || statsYear === null || !years.includes(statsYear)) { statsYear = defaultYear(records, nowYear); statsPick = null; }
-  statsLast = { years, stats: collectYearStats(records, statsYear, userProfile, { premium: isPremium }) };
+  const now = statsNow(), years = availableYears(records, now);
+  if (reset) { statsPeriod = DEFAULT_PERIOD(); statsPick = null; }
+  statsPeriod = normalizePeriod(statsPeriod, years, now);
+  statsLast = { years, stats: collectPeriodStats(records, statsPeriod, userProfile, { premium: isPremium, now }) };
   paintStats();
 }
 
-function stepStatsYear(dir) {
-  if (!statsLast) return;
-  const i = statsLast.years.indexOf(statsYear), next = statsLast.years[i + dir];
-  if (next === undefined) return;
-  statsYear = next; statsPick = null;
+function setStatsMode(mode) {
+  if (!statsLast || statsPeriod.mode === mode) return;
+  statsPeriod = { mode, years: statsPeriod.years }; statsPick = null;
+  renderStats().catch(e => console.warn('Статистика:', e));
+}
+
+function toggleStatsYear(year) {
+  if (!statsLast || statsPeriod.mode !== 'years') return;
+  const set = new Set(statsPeriod.years);
+  if (set.has(year)) { if (set.size > 1) set.delete(year); } else set.add(year);       // останній рік зняти не можна
+  statsPeriod = { mode: 'years', years: [...set] }; statsPick = null;
   renderStats().catch(e => console.warn('Статистика:', e));
 }
 
 function paintStats() {
   if (!statsLast) return;
-  const t = dict[currentLang], names = t.monthNames, { years, stats } = statsLast, { months, mix, totals } = stats;
-  const monthLine = mo => mo.has
-    ? `${names[mo.month - 1]}: ${t.statsGross} ${formatPLN(mo.gross)} · ${t.statsNet} ${formatPLN(mo.net)}`
-    : `${names[mo.month - 1]}: ${t.statsNoMonth}`;
-  document.getElementById('statsYear').textContent = String(stats.year);
-  document.getElementById('btn-year-prev').disabled = years.indexOf(stats.year) <= 0;
-  document.getElementById('btn-year-next').disabled = years.indexOf(stats.year) >= years.length - 1;
+  const t = dict[currentLang], names = t.monthNames, { years, stats } = statsLast, { buckets, mix, totals, kind, ids, missing } = stats;
+  const multiYear = new Set(ids.map(id => id.slice(0, 4))).size > 1;
+  const label = (year, month) => `${names[month - 1]}${multiYear ? ' ' + year : ''}`;
+  const monthLine = b => b.has
+    ? `${label(b.year, b.month)}: ${t.statsGross} ${formatPLN(b.gross)} · ${t.statsNet} ${formatPLN(b.net)}`
+    : `${label(b.year, b.month)}: ${t.statsNoMonth}`;
+  const yearLine = b => b.has
+    ? `${b.year}: ${t.statsPerMonth}: ${t.statsGross} ${formatPLN(b.gross)} · ${t.statsNet} ${formatPLN(b.net)} (${b.months} / ${b.expected} ${t.statsMonthsShort})`
+    : `${b.year}: ${t.statsNoMonth}`;
+  const lineOf = kind === 'year' ? yearLine : monthLine;
+
+  // фільтр: режим, роки, підпис діапазону
+  document.querySelectorAll('#periodPills .pill').forEach(btn => btn.setAttribute('aria-pressed', String(btn.dataset.mode === statsPeriod.mode)));
+  const yearBox = document.getElementById('yearPills');
+  yearBox.classList.toggle('hidden', statsPeriod.mode !== 'years');
+  yearBox.replaceChildren(...years.map(y => {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'pill'; btn.textContent = String(y);
+    btn.setAttribute('aria-pressed', String(statsPeriod.years.includes(y)));
+    btn.addEventListener('click', () => toggleStatsYear(y));
+    return btn;
+  }));
+  const range = document.getElementById('periodRange');
+  if (stats.from) {
+    const f = stats.from.split('-').map(Number), l = stats.to.split('-').map(Number);
+    range.textContent = `${names[f[1] - 1]} ${f[0]} – ${names[l[1] - 1]} ${l[0]}`;
+  } else range.textContent = '';
+
+  // місяці без даних у вибраному періоді (майбутніх немає за побудовою періоду)
+  const missBox = document.getElementById('statsMissing');
+  missBox.classList.toggle('hidden', missing.length === 0);
+  document.getElementById('statsMissingTitle').textContent = `${t.statsMissingN} ${missing.length}`;
+  document.getElementById('statsMissingList').replaceChildren(...missing.map(id => {
+    const li = document.createElement('li'); const [y, m] = id.split('-').map(Number);
+    li.textContent = `${names[m - 1]} ${y}`; return li;
+  }));
+
   const empty = totals.count === 0;
   document.getElementById('statsEmpty').classList.toggle('hidden', !empty);
   document.getElementById('statsBody').classList.toggle('hidden', empty);
   if (empty) return;
 
-  drawIncomeChart(document, document.getElementById('incomeChart'), months, {
-    labels: names.map(n => n.slice(0, 3)), selected: statsPick, ariaLabel: t.statsChartAria, pickLabel: monthLine,
-    onPick: m => { statsPick = m; paintStats(); }
+  document.getElementById('statsIncomeTitle').textContent = kind === 'year' ? t.statsIncomeYears : t.statsIncome;
+  const labels = buckets.map(b => (kind === 'year' ? String(b.year) : names[b.month - 1].slice(0, 3)));
+  const subLabels = kind === 'month' && multiYear ? buckets.map((b, i) => (i === 0 || b.month === 1 ? String(b.year) : '')) : null;
+  const picked = buckets.find(b => b.key === statsPick);
+  if (!picked) statsPick = null;
+  drawIncomeChart(document, document.getElementById('incomeChart'), buckets, {
+    labels, subLabels, selected: statsPick, ariaLabel: t.statsChartAria, pickLabel: lineOf,
+    onPick: key => { statsPick = key; paintStats(); }
   });
-  document.getElementById('statsPick').textContent = statsPick ? monthLine(months[statsPick - 1]) : t.statsPickHint;
+  document.getElementById('statsPick').textContent = picked ? lineOf(picked) : t.statsPickHint;
 
   const total = Object.values(mix).reduce((s, v) => s + v, 0);
   drawMixChart(document, document.getElementById('mixChart'), mix, { ariaLabel: t.statsMixAria, centerText: String(Math.round(total * 10) / 10), unitText: t.mixUnitCenter });
@@ -722,12 +766,12 @@ function paintStats() {
   document.getElementById('statsGrossVal').textContent = formatPLN(totals.gross);
   document.getElementById('statsNetVal').textContent = formatPLN(totals.net);
   document.getElementById('statsAvgVal').textContent = formatPLN(totals.avgNet);
-  document.getElementById('statsBestVal').textContent = totals.best ? `${names[totals.best.month - 1]} · ${formatPLN(totals.best.net)}` : '-';
-  document.getElementById('statsCountVal').textContent = `${totals.count} / 12`;
+  document.getElementById('statsBestVal').textContent = totals.best ? `${label(totals.best.year, totals.best.month)} · ${formatPLN(totals.best.net)}` : '-';
+  document.getElementById('statsCountVal').textContent = `${totals.count} / ${totals.expected}`;
 }
 
-document.getElementById('btn-year-prev').addEventListener('click', () => stepStatsYear(-1));
-document.getElementById('btn-year-next').addEventListener('click', () => stepStatsYear(1));
+document.querySelectorAll('#periodPills .pill').forEach(btn => btn.addEventListener('click', () => setStatsMode(btn.dataset.mode)));
+
 
 const appVerEl = document.getElementById('appVersion');
 if (appVerEl && globalThis.APP_VERSION) appVerEl.textContent = 'v' + globalThis.APP_VERSION;
