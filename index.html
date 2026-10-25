@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2f4f8">
+<meta name="description" content="Розрахунок зарплати, надгодин та відпускних">
+<title>Калькулятор зарплати</title>
+<!-- PWA Зв'язки -->
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="android-chrome-192x192.png">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body id="app-body">
+<svg class="sprite" width="0" height="0" aria-hidden="true"><defs>
+<symbol id="i-calc" viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M8.5 7h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-12z"/><path d="M14 2.5v5h5M9 13h6M9 17h6"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/></symbol>
+<symbol id="i-set" viewBox="0 0 24 24"><path d="M4 6h8M16 6h4M4 12h2M10 12h10M4 18h10M18 18h2"/><circle cx="14" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 13.5A8.5 8.5 0 1 1 10.5 3.5a7 7 0 0 0 10 10z"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V11M11 20V4M17 20v-6M3 20h18"/></symbol>
+<symbol id="i-l" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol><symbol id="i-r" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+</defs></svg>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="update-banner" class="update-banner hidden" role="status">
+<span data-i18n="updateAvailable">Доступна нова версія</span>
+<button type="button" id="btn-update" class="btn primary" data-i18n="updateNow">Оновити</button>
+<button type="button" id="btn-update-later" class="btn" data-i18n="updateLater">Пізніше</button>
+</div>
+
+<header class="top"><div class="topbar">
+<div class="brand"><span class="mark" aria-hidden="true">zł</span><h1 data-i18n="title">Калькулятор</h1><span class="pro-badge">PRO</span><span class="app-ver" id="appVersion"></span></div>
+<nav class="tabs" data-i18n-aria="ariaNav" aria-label="Навігація">
+<button type="button" class="tab" data-page="1" aria-current="page"><svg aria-hidden="true" class="icon"><use href="#i-calc"/></svg><span data-i18n="navCalc">Розрахунок</span></button>
+<button type="button" class="tab" data-page="2"><svg aria-hidden="true" class="icon"><use href="#i-doc"/></svg><span data-i18n="navDetails">Деталі</span></button>
+<button type="button" class="tab" data-page="3"><svg aria-hidden="true" class="icon"><use href="#i-chart"/></svg><span data-i18n="navStats">Рік</span></button>
+<button type="button" class="tab" data-page="4"><svg aria-hidden="true" class="icon"><use href="#i-user"/></svg><span data-i18n="navProfile">Профіль</span></button>
+<button type="button" class="tab" data-page="5"><svg aria-hidden="true" class="icon"><use href="#i-set"/></svg><span data-i18n="navSettingsTab">Параметри</span></button></nav>
+<div class="seg" role="group" data-i18n-aria="ariaLangGrp" aria-label="Мова"><button type="button" data-lang="uk" lang="uk">UA</button><button type="button" data-lang="pl" lang="pl">PL</button></div>
+<button type="button" class="icon-btn" id="btn-theme" data-i18n-aria="ariaTheme" aria-label="Змінити тему"><svg aria-hidden="true" class="icon moon"><use href="#i-moon"/></svg><svg aria-hidden="true" class="icon sun"><use href="#i-sun"/></svg></button>
+<button type="button" class="icon-btn" data-page="4" data-i18n-aria="navProfile" aria-label="Профіль"><svg aria-hidden="true" class="icon"><use href="#i-user"/></svg><span class="dot"></span></button>
+</div></header>
+
+<main>
+<section class="view active" id="page1">
+<div class="layout">
+<div class="aside"><section class="hero">
+<div class="hero-row"><span class="hero-label">NETTO</span><span data-i18n="netHint">до виплати</span></div>
+<div class="hero-net" id="netResult">0,00 zł</div>
+<div class="hero-gross"><span>BRUTTO</span><strong id="grossResult">0,00 zł</strong></div></section></div>
+<div class="forms">
+<div class="card period"><button type="button" class="icon-btn" data-step="1" data-i18n-aria="ariaPrev"><svg aria-hidden="true" class="icon"><use href="#i-l"/></svg></button>
+<div class="ctl sel"><select id="monthSelect" data-i18n-aria="month"></select></div>
+<button type="button" class="icon-btn" data-step="-1" data-i18n-aria="ariaNext"><svg aria-hidden="true" class="icon"><use href="#i-r"/></svg></button></div>
+
+<section class="card"><h3 data-i18n="secBase">Основна зарплата</h3>
+<div class="field"><div class="lab"><label for="baseSalary" data-i18n="base">Ставка (zł)</label></div><div class="ctl"><input type="number" inputmode="decimal" id="baseSalary" placeholder="0"></div></div>
+<div class="field"><div class="lab"><label for="presencePctSelect" data-i18n="presenceBonusTitle">Премія присутність</label></div><div class="ctl sel"><select id="presencePctSelect"><option value="5">5%</option><option value="2.5">2.5%</option><option value="0">0%</option></select></div></div>
+<div class="field"><div class="lab"><label for="bonusPctSelect" data-i18n="bonus">Премія якість</label></div><div class="ctl sel"><select id="bonusPctSelect"><option value="10">10%</option><option value="5">5%</option><option value="0">0%</option></select></div></div>
+<div class="field"><div class="lab"><label for="extraBonus" data-i18n="extraBonus">Додатково (zł)</label></div><div class="ctl"><input type="number" inputmode="decimal" id="extraBonus" placeholder="0"></div></div></section>
+
+<section class="card"><h3 data-i18n="cardShifts">Відпрацьовано</h3>
+<div class="field pro-only"><div class="lab"><label for="scheduleDays" data-i18n="schedDays">Графік</label><small data-i18n="hintSched">Норма змін; рахується автоматично, можна змінити</small></div><div class="ctl"><input type="number" inputmode="numeric" id="scheduleDays" placeholder=""></div></div>
+<div class="field"><div class="lab"><label for="morningShifts" data-i18n="morning">Ранкові (шт)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="morningShifts" placeholder="0"></div></div><div class="field"><div class="lab"><label for="afternoonShifts" data-i18n="afternoon">Денні (шт)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="afternoonShifts" placeholder="0"></div></div>
+<div class="field"><div class="lab"><label for="nightShifts" data-i18n="night">Нічні (шт)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="nightShifts" placeholder="0"></div></div><div class="field"><div class="lab"><label for="weekendDays" data-i18n="weekend">Вихідні (днів)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="weekendDays" placeholder="0"></div></div></section>
+
+<section class="card"><h3 data-i18n="cardOvertime">Надгодини</h3>
+<div class="field"><div class="lab"><label for="overtimeDays" data-i18n="overtime">Всього (днів)</label></div><div class="ctl"><input type="number" inputmode="decimal" id="overtimeDays" placeholder="0" step="0.5"></div></div>
+<div id="overtimeSubGroup" class="hidden"><div class="field sub"><div class="lab"><label for="overtimeMorningShifts" data-i18n="overtimeMorning">З них ранкових</label></div><div class="ctl"><input type="number" inputmode="numeric" id="overtimeMorningShifts" placeholder="0"></div></div><div class="field sub"><div class="lab"><label for="overtimeNightShifts" data-i18n="overtimeNight">З них нічних</label></div><div class="ctl"><input type="number" inputmode="numeric" id="overtimeNightShifts" placeholder="0"></div></div></div></section>
+
+<section class="card pro-only"><h3 data-i18n="cardAbsence">Відсутності</h3>
+<div class="field"><div class="lab"><label for="vacationDays" data-i18n="vacationDays">Відпустка (днів)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="vacationDays" placeholder="0"></div></div>
+<div class="field sub hidden" id="urlopBonusGroup"><div class="lab"><label for="urlopBonus" data-i18n="urlopBonus">Сер. за 1 дн. (zł)</label><small data-i18n="hintUrlop">Авто за 3 попередні місяці (з хмари), можна змінити</small></div><div class="ctl"><input type="number" inputmode="decimal" id="urlopBonus" placeholder="0.00"></div></div>
+<div class="field"><div class="lab"><label for="bloodDonationDays" data-i18n="bloodDonation">Поважна відсутність (днів)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="bloodDonationDays" placeholder="0"></div></div>
+<div class="field sub hidden" id="bloodBonusGroup"><div class="lab"><label for="bloodBonus" data-i18n="bloodBonus">Сер. за 1 дн. (zł)</label><small data-i18n="hintBlood">Розраховується автоматично</small></div><div class="ctl"><input type="number" inputmode="decimal" id="bloodBonus" placeholder="0.00" readonly></div></div>
+<div class="field"><div class="lab"><label for="l4Days" data-i18n="l4Days">Лікарняний L4</label><small data-i18n="hintL4">Календарних днів</small></div><div class="ctl"><input type="number" inputmode="numeric" id="l4Days" placeholder="0"></div></div>
+<div class="field sub hidden" id="l4MissedGroup"><div class="lab"><label for="l4MissedShifts" data-i18n="l4Missed">Пропущено (змін)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="l4MissedShifts" placeholder="0"></div></div></section>
+
+<p class="note guest-only" data-i18n="proNote">Відпустка, поважна відсутність та лікарняний доступні після входу (PRO).</p>
+<button type="button" class="btn" data-page="2" data-i18n="toDetails">Деталізація</button>
+<div class="hidden" data-cloud-only><button type="button" id="btn-sync-up-calc" class="btn primary" data-sync-up data-i18n="btnSaveCloud">Зберегти місяць</button></div>
+</div></div></section>
+
+<section class="view" id="page2">
+<h2 class="vt" data-i18n="navDetails">Деталі</h2><p class="period-lbl" id="detailsPeriod"></p>
+<div class="layout dl"><div class="forms">
+<section class="card"><h3 data-i18n="secBase2">Основна зарплата та бонуси</h3>
+<div class="row"><span><span data-i18n="infoBasePay" data-nocolon>База (з урахув. L4):</span></span><b id="infoBasePayVal">0,00 zł</b></div>
+<div class="row"><span><span data-i18n="infoPresenceBonus" data-nocolon>Присутність</span> <span class="tag" id="infoPresencePct">5%</span></span><b id="infoPresenceBonusSum">0,00 zł</b></div>
+<div class="row"><span><span data-i18n="infoQualityBonus" data-nocolon>Якість</span> <span class="tag" id="infoQualityPct">10%</span></span><b id="infoQualityBonusSum">0,00 zł</b></div>
+<div class="row"><span><span data-i18n="infoExtraBonus" data-nocolon>Додаткова премія</span></span><b id="infoExtraBonusSum">0,00 zł</b></div></section>
+
+<section class="card"><h3 data-i18n="secNight">Нічні зміни та вихідні</h3>
+<div class="row"><span><span data-i18n="infoNightTime" data-nocolon>Нічні (час)</span> <span class="tag" id="infoNightHours">0г</span></span><b id="infoNightTimeSum">0,00 zł</b></div>
+<div class="row"><span><span data-i18n="infoNightShift" data-nocolon>Нічні (зміни)</span> <span class="tag" id="infoNightShiftsCount">0</span></span><b id="infoNightShiftSum">0,00 zł</b></div>
+<div class="row"><span><span data-i18n="infoWeekend" data-nocolon>Вікенди:</span></span><b id="infoWeekendSum">0,00 zł</b></div></section>
+
+<section class="card"><h3 data-i18n="cardOvertime">Надгодини</h3>
+<div class="row"><span><span data-i18n="infoOvertime" data-nocolon>Надгодини:</span></span><b id="infoOvertimeSum">0,00 zł</b></div><div class="row subrow"><span><span data-i18n="lblNettoShort" data-nocolon>нетто</span></span><b id="infoOvertimeNetSum">0,00 zł</b></div></section>
+
+<section class="card line"><h3 data-i18n="secVac">Відпускні</h3><b id="infoVacationSum">0,00 zł</b></section><section class="card line"><h3 data-i18n="secBlood">Поважна відсутність</h3><b id="infoBloodSum">0,00 zł</b></section><section class="card line"><h3 data-i18n="secL4">Лікарняний</h3><b id="infoL4Sum">0,00 zł</b></section>
+</div><div class="forms dside">
+<section class="card total"><h3 data-i18n="secTotals">Підсумок</h3>
+<div class="row strong"><span><span data-i18n="totalBrutto" data-nocolon>BRUTTO:</span></span><b id="infoTotalBrutto">0,00 zł</b></div><div class="row"><span><span data-i18n="infoLaundry" data-nocolon>Доплата (прання):</span></span><b id="infoLaundrySum">0,00 zł</b></div>
+<div class="row hidden" id="rowPitExtra"><span><span data-i18n="infoPitExtra" data-nocolon>PIT 32% (понад 120 000):</span></span><b id="infoPitExtraVal">0,00 zł</b></div>
+<div class="row net"><span data-i18n="totalNetto" data-nocolon>NETTO:</span><b id="infoTotalNetto">0,00 zł</b></div></section>
+
+<section class="card"><h3 data-i18n="secStats">Параметри місяця</h3>
+<div class="row"><span data-i18n="infoWorkedDays" data-nocolon>Відпрацьовано змін:</span><b id="infoWorkedDaysVal">-</b></div>
+<div class="row"><span data-i18n="infoTotalDays" data-nocolon>Всього днів:</span><b id="infoTotalDaysVal">-</b></div>
+<div class="row"><span data-i18n="infoSched" data-nocolon>Дні за графіком:</span><b id="infoSchedVal">-</b></div>
+<div class="row"><span data-i18n="infoNightTariff" data-nocolon>Нічний тариф:</span><b id="infoNightTariffVal">-</b></div>
+<div class="row hidden" id="rowPitYtd"><span data-i18n="infoPitYtd" data-nocolon>База PIT з початку року:</span><b id="infoPitYtdVal">-</b></div>
+<p class="card-sub hidden" id="pitYtdNote"></p></section>
+
+<div class="hidden" data-cloud-only><button type="button" id="btn-sync-up-info" class="btn primary" data-sync-up data-i18n="btnSaveCloud">Зберегти місяць</button></div>
+</div></div></section>
+
+<section class="view" id="viewProfile">
+<h2 class="vt" data-i18n="navProfile">Профіль</h2><div class="layout one"><div class="forms">
+<section class="card"><h3 data-i18n="navProfile">Профіль</h3>
+<div class="field"><div class="lab"><label for="profBaseSalary" data-i18n="profBase">Стандартна ставка (zł)</label></div><div class="ctl"><input type="number" inputmode="decimal" id="profBaseSalary" placeholder="0"></div></div>
+<div class="field"><div class="lab"><label for="profUnder26" data-i18n="profAge">Вік до 26 років</label></div><div class="ctl sel"><select id="profUnder26"><option value="no" data-i18n="no">Ні</option><option value="yes" data-i18n="yes">Так</option></select></div></div><div class="field"><div class="lab"><label for="profPpk" data-i18n="profPpk">Участь у PPK</label></div><div class="ctl sel"><select id="profPpk"><option value="no" data-i18n="no">Ні</option><option value="yes" data-i18n="yes">Так</option></select></div></div><div class="field"><div class="lab"><label for="profIns" data-i18n="profIns">Додаткове страхування</label></div><div class="ctl sel"><select id="profIns"><option value="yes" data-i18n="yes">Так</option><option value="no" data-i18n="no">Ні</option></select></div></div>
+<button type="button" id="btn-save-profile" class="btn primary" data-i18n="btnSaveProfile">Зберегти профіль</button></section>
+
+<section class="card"><h3 data-i18n="cloudHeader">Акаунт & Хмара</h3>
+<form id="auth-form" novalidate><div id="auth-container">
+<div class="stack"><label for="email" data-i18n="lblEmail">Email</label><div class="ctl"><input type="email" id="email" autocomplete="email" placeholder="Email"></div></div>
+<div class="stack"><label for="password" data-i18n="lblPwd">Пароль</label><div class="ctl"><input type="password" id="password" autocomplete="current-password" data-i18n-ph="pwdPlaceholder" placeholder="Пароль"></div></div>
+<button type="button" id="btn-reset-password" class="link-btn" data-i18n="btnResetPassword">Забули пароль?</button>
+<button type="submit" id="btn-login" class="btn primary" data-i18n="btnLogin">Увійти (PRO)</button>
+<button type="button" id="btn-register" class="btn" data-i18n="btnRegister">Реєстрація</button>
+<p class="card-sub" data-i18n="guestNote">Без входу дані зберігаються лише на цьому пристрої.</p></div></form>
+<div id="sync-container" class="hidden"><p class="acct" id="user-email-display"></p>
+<button type="button" id="btn-sync-down" class="btn" data-i18n="btnLoadCloud">Завантажити</button>
+<button type="button" id="btn-logout" class="btn" data-i18n="btnLogout">Вийти</button></div></section></div></div></section>
+
+<section class="view" id="viewSettings">
+<h2 class="vt" data-i18n="navSettings">Налаштування</h2><div class="layout one"><div class="forms"><section class="card">
+<div class="field"><div class="lab"><label for="langSelect" data-i18n="menuLang">Мова</label></div><div class="ctl sel"><select id="langSelect"><option value="uk">Українська</option><option value="pl">Polski</option></select></div></div>
+<div class="field"><div class="lab"><label for="themeSelect" data-i18n="menuTheme">Тема</label></div><div class="ctl sel"><select id="themeSelect"><option value="light" data-i18n="optThemeLight">Світла</option><option value="dark" data-i18n="optThemeDark">Темна</option></select></div></div>
+</section></div></div></section>
+
+<section class="view" id="viewStats">
+<h2 class="vt" data-i18n="navStats">Рік</h2><div class="layout one"><div class="forms">
+<div class="card period"><button type="button" class="icon-btn" id="btn-year-prev" data-year-step="-1" data-i18n-aria="ariaPrevYear" aria-label="Попередній рік"><svg aria-hidden="true" class="icon"><use href="#i-l"/></svg></button>
+<div class="year-label" id="statsYear" aria-live="polite"></div>
+<button type="button" class="icon-btn" id="btn-year-next" data-year-step="1" data-i18n-aria="ariaNextYear" aria-label="Наступний рік"><svg aria-hidden="true" class="icon"><use href="#i-r"/></svg></button></div>
+<p class="note hidden" id="statsEmpty" data-i18n="statsEmpty">За цей рік немає збережених місяців. Збережіть місяць у калькуляторі, і тут з'явиться статистика.</p>
+<div class="forms" id="statsBody">
+<section class="card"><h3 data-i18n="statsTotals">Підсумок за рік</h3>
+<div class="row"><span data-i18n="statsGross">Брутто</span><b id="statsGrossVal">-</b></div>
+<div class="row net"><span data-i18n="statsNet">Нетто</span><b id="statsNetVal">-</b></div>
+<div class="row"><span data-i18n="statsAvgNet">Середнє нетто за місяць</span><b id="statsAvgVal">-</b></div>
+<div class="row"><span data-i18n="statsBest">Найвище нетто</span><b id="statsBestVal">-</b></div>
+<div class="row"><span data-i18n="statsCount">Місяців із даними</span><b id="statsCountVal">-</b></div></section>
+<section class="card"><h3 data-i18n="statsIncome">Дохід по місяцях</h3>
+<div class="chart-host" id="incomeChart"></div>
+<div class="legend"><span><i class="chip chip-gross"></i><span data-i18n="statsGross">Брутто</span></span><span><i class="chip chip-net"></i><span data-i18n="statsNet">Нетто</span></span></div>
+<p class="card-sub" id="statsPick"></p></section>
+<section class="card"><h3 data-i18n="statsMix">Структура змін</h3>
+<div class="chart-host mix-host" id="mixChart"></div>
+<ul class="mix-legend" id="mixLegend"></ul></section>
+<p class="card-sub" data-i18n="statsNote">Враховано збережені місяці року.</p>
+</div></div></div></section>
+</main>
+
+<script src="js/version.js"></script>
+<script type="module" src="js/app.js"></script>
+<!-- Реєстрація Service Worker для PWA (окремий класичний скрипт — працює, навіть якщо app.js не завантажився офлайн) -->
+<script src="js/sw-register.js" defer></script>
+</body>
+</html>

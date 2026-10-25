@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Місяць: users/{uid}/months/{YYYY-MM}
+    match /users/{uid}/months/{monthId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && monthId.matches('^[0-9]{4}-(0[1-9]|1[0-2])$')
+        && request.resource.data.keys().size() <= 40;   // зараз ~20 полів, запас на розвиток
+    }
+
+    // Профіль: users/{uid}/profile/userProfile
+    match /users/{uid}/profile/{docId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && docId == 'userProfile'
+        && request.resource.data.keys().size() <= 10;
+    }
+
+    // Усе інше заборонено
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
