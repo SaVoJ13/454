@@ -96,4 +96,32 @@ assert.ok(Math.abs(pct.reduce((a, b) => a + b, 0) - 100) <= 3, 'відсотки
 assert.equal(drawMixLegend(doc, makeNode('ul'), { regular: 0 }, labelsMix).length, 0);
 assert.deepEqual(MIX_KEYS, ['regular', 'night', 'overtime', 'vacation', 'l4', 'excused']);
 
+// 7. Довільна кількість стовпчиків (3 / 6 місяців, роки), вибір за ключем, другий рядок підпису
+const few = [
+  { key: '2026-08', has: true, gross: 4000, net: 3000 }, { key: '2026-09', has: false, gross: 0, net: 0 }, { key: '2026-10', has: true, gross: 8000, net: 6000 }
+];
+const picks3 = [];
+const svg3 = drawIncomeChart(doc, makeNode('div'), few, { labels: ['Сер', 'Вер', 'Жов'], selected: '2026-10', pickLabel: b => String(b.key), onPick: k => picks3.push(k) });
+const slot3 = (360 - 36 - 6) / 3;
+assert.equal(findAll(svg3, n => hasClass(n, 'hit')).length, 3);
+assert.equal(Number(findAll(svg3, n => hasClass(n, 'hit'))[0].attrs.width), Math.round(slot3 * 10) / 10, 'область дотику на всю ширину слота');
+assert.equal(Number(findAll(svg3, n => hasClass(n, 'bar-net'))[0].attrs.width), 18, 'при трьох стовпцях смуги ширші (до 18)');
+assert.equal(findAll(svg3, n => hasClass(n, 'bar-group') && hasClass(n, 'sel')).length, 1);
+assert.ok(hasClass(findAll(svg3, n => hasClass(n, 'bar-group'))[2], 'sel'), 'вибраний — за ключем, а не за номером');
+findAll(svg3, n => hasClass(n, 'hit'))[0].handlers.click[0]();
+assert.deepEqual(picks3, ['2026-08'], 'onPick отримує ключ');
+noBadNumbers(svg3);
+
+const withSub = drawIncomeChart(doc, makeNode('div'), few, { labels: ['Гру', 'Січ', 'Лют'], subLabels: ['’25', '’26', ''] });
+assert.deepEqual(findAll(withSub, n => hasClass(n, 'axis') && hasClass(n, 'sub')).map(n => n.textContent), ['’25', '’26'], 'другий рядок лише там, де він є');
+const g8 = findAll(withSub, n => hasClass(n, 'bar-gross'));
+assert.equal(Number(g8[1].attrs.height), 210 - 10 - 34, 'з другим рядком підпису область графіка нижча (34 замість 24)');
+assert.ok(findAll(withSub, n => hasClass(n, 'axis') && n.attrs['text-anchor'] === 'middle' && !hasClass(n, 'sub')).every(n => Number(n.attrs.y) === 192), 'основні підписи піднято над роком');
+const noSub = drawIncomeChart(doc, makeNode('div'), few, { labels: ['Сер', 'Вер', 'Жов'], subLabels: ['', '', ''] });
+assert.equal(Number(findAll(noSub, n => hasClass(n, 'bar-gross'))[1].attrs.height), 210 - 10 - 24, 'порожні підписи не забирають місце');
+
+// 8. Один стовпчик і порожній список не ламають розмітку
+noBadNumbers(drawIncomeChart(doc, makeNode('div'), [few[0]], {}));
+noBadNumbers(drawIncomeChart(doc, makeNode('div'), [], {}));
+
 console.log('OK: графіки (шкала, висоти стовпчиків, вибір місяця, кільце, легенда, без NaN)');

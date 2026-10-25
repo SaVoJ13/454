@@ -16,7 +16,8 @@ const html = readFileSync(join(root, 'index.html'), 'utf8');
 const formHtml = html.slice(html.indexOf('<form id="auth-form"'), html.indexOf('</form>'));
 assert.ok(/<button type="button" id="btn-reset-password"/.test(formHtml), '«Забули пароль?» має бути type="button" усередині форми входу');
 
-const { getEl, fire, fireWindow, store } = installFakeDom();
+const { getEl, fire, fireWindow, store } = installFakeDom({ groups: { '#periodPills .pill': ['pill3', 'pill6', 'pill12', 'pillYears'] } });
+['3', '6', '12', 'years'].forEach((m, i) => { getEl(['pill3', 'pill6', 'pill12', 'pillYears'][i]).dataset.mode = m; });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { dict } = await import('../js/i18n.js');
 const toast = () => getEl('toast').innerText;
@@ -55,7 +56,8 @@ const stub = {
     };
   }
 };
-globalThis.__salaryTest = { cloudLoader: async () => stub, saveTimeoutMs: 60, resetCooldownMs: 120 };
+globalThis.__salaryTest = { cloudLoader: async () => stub, saveTimeoutMs: 60, resetCooldownMs: 120,
+  now: new Date(2026, 11, 15, 12).getTime() };   // «сьогодні» для статистики: грудень 2026 (поточний місяць, у якому перетинається поріг PIT)
 console.warn = () => {};
 
 await import('../js/app.js');
@@ -205,17 +207,14 @@ assert.equal(getEl('netResult').innerText, money(resDec.net - expectedExtra), '�
 assert.equal(getEl('rowPitExtra').classList.contains('hidden'), false);
 // статистика без мережі: хмара недоступна — місяці беруться з локальних копій
 window.switchPage(3); await sleep(80);
-{ const yr = () => Number(getEl('statsYear').textContent);
-  for (let i = 0; i < 6 && yr() !== 2026; i++) { await fire(getEl(yr() > 2026 ? 'btn-year-prev' : 'btn-year-next'), 'click'); await sleep(50); } }
-assert.equal(getEl('statsCountVal').textContent, '12 / 12', 'офлайн: вкладка «Рік» бере місяці з локальних копій');
+assert.equal(getEl('statsCountVal').textContent, '12 / 12', 'офлайн: вкладка «Статистика» бере місяці з локальних копій (останні 12 місяців = 2026 рік)');
 window.switchPage(1);
 navigator.onLine = true; getDocsMode = 'ok';
 
-// 4f. Вкладка «Рік» (акаунт): netto місяця в статистиці = netto в калькуляторі, зокрема з порогом PIT у грудні
+// 4f. Вкладка «Статистика» (акаунт): netto місяця в статистиці = netto в калькуляторі, зокрема з порогом PIT у грудні
 window.switchPage(3); await sleep(80);
-const statsYearNum = () => Number(getEl('statsYear').textContent);
-for (let i = 0; i < 6 && statsYearNum() !== 2026; i++) { await fire(getEl(statsYearNum() > 2026 ? 'btn-year-prev' : 'btn-year-next'), 'click'); await sleep(50); }
-assert.equal(statsYearNum(), 2026, 'до 2026 року можна дійти кнопками року');
+assert.equal(getEl('periodRange').textContent, `${dict.uk.monthNames[0]} 2026 – ${dict.uk.monthNames[11]} 2026`, '12 місяців до грудня 2026 включно');
+assert.equal(getEl('statsMissing').classList.contains('hidden'), true, 'усі 12 місяців збережено — списку відсутніх немає');
 const monthsNames = dict.uk.monthNames;
 const resOf = id => compute(inputsFromSaved(dataOf(id), id, profile));
 const allIds = Array.from({ length: 12 }, (_, j) => `2026-${String(j + 1).padStart(2, '0')}`);
@@ -229,6 +228,18 @@ assert.equal(getEl('statsPick').textContent, `${monthsNames[11]}: ${dict.uk.stat
 findAll(getEl('incomeChart'), n => hasClass(n, 'hit'))[0].handlers.click[0]();
 assert.equal(getEl('statsPick').textContent, `${monthsNames[0]}: ${dict.uk.statsGross} ${money(resOf('2026-01').gross)} · ${dict.uk.statsNet} ${money(resOf('2026-01').net)}`, 'нижче порога — без додаткового податку');
 
+// 4g. Майбутні місяці: якщо «сьогодні» 25.10.2026, листопад і грудень 2026 у статистику не входять
+globalThis.__salaryTest.now = new Date(2026, 9, 25, 12).getTime();
+await fire(getEl('pillYears'), 'click'); await sleep(80);
+{ const octIds = Array.from({ length: 10 }, (_, j) => `2026-${String(j + 1).padStart(2, '0')}`);
+  assert.equal(getEl('statsCountVal').textContent, '10 / 10', 'рік 2026 до жовтня включно: грудень (який є в хмарі) не рахується');
+  assert.equal(getEl('statsNetVal').textContent, money(octIds.reduce((s, id) => s + resOf(id).net, 0)), 'без грудня немає й додаткового PIT');
+  assert.equal(getEl('statsMissing').classList.contains('hidden'), true); }
+await fire(getEl('pill12'), 'click'); await sleep(80);
+assert.equal(getEl('statsCountVal').textContent, '10 / 12', 'вікно 12 місяців: листопад–грудень 2025 не збережені');
+assert.deepEqual(getEl('statsMissingList').children.map(li => li.textContent), [`${monthsNames[10]} 2025`, `${monthsNames[11]} 2025`], 'у списку відсутніх лише минулі місяці');
+globalThis.__salaryTest.now = new Date(2026, 11, 15, 12).getTime();
+
 // 5. Вихід: копія місяців і профіль акаунта прибрані, гостьові дані лишаються
 store.set('user_profile_u1', '{"baseSalary":6100}');
 store.set('guest_month_2026-01', '{"baseSalary":"5000"}');
@@ -238,7 +249,7 @@ assert.ok(!store.has('user_profile_u1'), 'локальна копія профі
 assert.ok(store.has('guest_month_2026-01'), 'гостьові дані не чіпаємо');
 assert.equal(getEl('rowPitYtd').classList.contains('hidden'), true, 'після виходу рядки порога PIT сховані (у гостя їх немає)');
 await sleep(80);
-assert.equal(getEl('statsCountVal').textContent, '1 / 12', 'після виходу вкладка «Рік» показує дані гостя, а не акаунта');
+assert.equal(getEl('statsCountVal').textContent, '1 / 12', 'після виходу вкладка «Статистика» показує дані гостя, а не акаунта');
 window.switchPage(1);
 
 // 6. Банер нової версії: подія від sw-register показує, «Пізніше» ховає, «Оновити» перезавантажує

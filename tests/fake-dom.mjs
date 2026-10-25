@@ -45,7 +45,8 @@ export function installFakeDom({ groups = {} } = {}) {
       children: [],
       replaceChildren(...nodes) { this.children = nodes; },
       addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); },
-      setAttribute() {}, removeAttribute() {}, hasAttribute() { return false; },
+      attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k] ?? null; },
+      removeAttribute(k) { delete this.attrs[k]; }, hasAttribute() { return false; },
       dispatchEvent() {}, closest() { return null; }
     };
   }
