@@ -78,18 +78,18 @@ base.value = '';  await fire(body, 'input', base);
 await fire(body, 'focusout', base);
 assert.equal(String(base.value), '5750', 'порожня ставка замінюється ставкою з профілю');
 
-// 8. Вибір мови працює без inline onchange
-const langSel = getEl('langSelect');
-langSel.value = 'pl'; await fire(langSel, 'change');
+// 8. Вибір мови («Параметри» → «Вигляд», UA | PL) працює без inline-обробника
+await fire(getEl('langPl'), 'click');
 assert.equal(document.documentElement.lang, 'pl', 'зміна мови через listener');
-langSel.value = 'uk'; await fire(langSel, 'change');
+assert.equal(getEl('langPl').attrs['aria-pressed'], 'true'); assert.equal(getEl('langUk').attrs['aria-pressed'], 'false');
+await fire(getEl('langUk'), 'click');
 assert.equal(document.documentElement.lang, 'uk');
 
 // 9. Версія показується в шапці
 assert.equal(getEl('appVersion').textContent, 'Версія 9.9.9', 'версія в «Параметрах»');
-getEl('langSelect').value = 'pl'; await fire(getEl('langSelect'), 'change');
+await fire(getEl('langPl'), 'click');
 assert.equal(getEl('appVersion').textContent, 'Wersja 9.9.9', 'PL: «Wersja …»');
-getEl('langSelect').value = 'uk'; await fire(getEl('langSelect'), 'change');
+await fire(getEl('langUk'), 'click');
 
 // 10. Вкладка «Рік» (гість): статистика зі збережених місяців у localStorage
 for (const k of [...store.keys()]) if (k.startsWith('guest_month_')) store.delete(k);
@@ -138,10 +138,10 @@ hits()[3].handlers.click[0]();
 assert.equal(getEl('statsPick').textContent, `${names[1]} 2026: ${dict.uk.statsGross} ${money(rFeb.gross)} · ${dict.uk.statsNet} ${money(rFeb.net)}`);
 assert.equal(findAll(getEl('incomeChart'), n => hasClass(n, 'bar-group') && hasClass(n, 'sel')).length, 1, 'вибраний місяць підсвічено');
 // зміна мови перемальовує підписи
-getEl('langSelect').value = 'pl'; await fire(getEl('langSelect'), 'change');
+await fire(getEl('langPl'), 'click');
 assert.equal(getEl('statsPick').textContent, `${dict.pl.monthNames[1]} 2026: ${dict.pl.statsGross} ${money(rFeb.gross)} · ${dict.pl.statsNet} ${money(rFeb.net)}`);
 assert.equal(getEl('statsMissingTitle').textContent, `${dict.pl.statsMissingN} 10`, 'підпис списку відсутніх місяців перекладено');
-getEl('langSelect').value = 'uk'; await fire(getEl('langSelect'), 'change');
+await fire(getEl('langUk'), 'click');
 
 // 3 місяці: серпень–жовтень 2026, даних немає → порожній стан, але список відсутніх показано
 await pickBtn('pill3'); await tick(60);
@@ -185,7 +185,7 @@ assert.equal(getEl('statsPick').textContent, `2025: ${dict.uk.statsPerMonth}: ${
 await fire(getEl('yearPills').children[0], 'click'); await tick(60);
 await fire(getEl('yearPills').children[1], 'click'); await tick(60);
 assert.deepEqual(getEl('yearPills').children.map(b => b.attrs['aria-pressed']), ['false', 'true'], 'зняли 2025; спроба зняти і 2026 ігнорується: лишається хоча б один рік');
-getEl('langSelect').value = 'uk'; await fire(getEl('langSelect'), 'change');
+await fire(getEl('langUk'), 'click');
 
 // порожній стан: даних немає — повідомлення замість графіків
 for (const k of [...store.keys()]) if (k.startsWith('guest_month_')) store.delete(k);

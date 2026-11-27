@@ -73,6 +73,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { dict } = await import('../js/i18n.js');
 globalThis.__salaryTest = { cloudLoader: async () => { throw new Error('offline'); } };
 console.warn = () => {};
+const { ensureProfiles } = await import('../js/profiles.js');
+ensureProfiles(localStorage);           // наявний користувач (профіль уже є): без екрана першого запуску
 await import('../js/app.js');
 await sleep(60);
 const body = getEl('app-body'), month = getEl('monthSelect').value;
@@ -98,7 +100,9 @@ assert.ok(text('dedLaundryVal').startsWith('+'));
 
 // профіль: неправильна сума не зберігається, під полем помилка
 const field = getEl('profExtraDeduction'), save = () => fire(getEl('btn-save-profile'), 'click');
-getEl('profBaseSalary').value = '5750'; getEl('profUnder26').value = 'no'; getEl('profPpk').value = 'no';
+// повзунки «До 26 років» і «PPK» (role="switch"): дотик перемикає aria-checked, у профіль іде 'yes' / 'no'
+const setSwitch = async (id, on) => { if ((getEl(id).attrs['aria-checked'] === 'true') !== on) await fire(getEl(id), 'click'); };
+getEl('profBaseSalary').value = '5750'; await setSwitch('profUnder26', false); await setSwitch('profPpk', false);
 for (const [value, key] of [['абв', 'errDeduction'], ['2000,01', 'errDeductionMax']]) {
   field.value = value; getEl('toast').innerText = '';
   await save();
@@ -110,9 +114,11 @@ window.setLang('pl'); assert.equal(text('profExtraDeductionError'), dict.pl.errD
 await fire(field, 'input'); assert.equal(hidden('profExtraDeductionError'), false, 'доки сума неправильна, повідомлення лишається');
 field.value = '2000'; await fire(field, 'input'); assert.equal(hidden('profExtraDeductionError'), true, 'сума стала правильною — повідомлення зникає');
 // порожнє = 0; до 26 років і PPK
-field.value = ''; getEl('profUnder26').value = 'yes'; getEl('profPpk').value = 'yes';
+field.value = ''; await setSwitch('profUnder26', true); await setSwitch('profPpk', true);
+assert.equal(getEl('profUnder26State').textContent, dict.uk.yes, 'під повзунком — «Так»');
 await save();
 assert.equal(JSON.parse(store.get('user_profile_guest')).extraDeduction, 0);
+assert.deepEqual([JSON.parse(store.get('user_profile_guest')).under26, JSON.parse(store.get('user_profile_guest')).ppk], ['yes', 'yes'], 'повзунки зберігаються як yes');
 check({ ...profile, under26: 'yes', ppk: 'yes', extraDeduction: 0 }, 'до 26 років, PPK, без відрахування');
 assert.equal(text('dedPitLabel'), dict.uk.dedPitExempt); assert.equal(text('dedPitVal'), ''); assert.equal(hidden('dedPit'), false);
 assert.equal(hidden('dedExtra'), true); assert.equal(hidden('dedPpk'), false);

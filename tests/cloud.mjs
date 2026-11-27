@@ -96,20 +96,41 @@ for (const [code, key] of [['auth/invalid-email', 'errInvalidEmail'], ['auth/too
 assert.equal(resets.length, 5, 'після помилок повторна спроба одразу дозволена');
 // 0f. Мова листа слідує за мовою інтерфейсу
 resetMode = 'ok'; await wait(150);
-getEl('langSelect').value = 'pl'; await fire(getEl('langSelect'), 'change');
+await fire(getEl('langPl'), 'click');
 await fire(resetBtn, 'click');
 assert.equal(resets.at(-1).lang, 'pl'); assert.equal(toast(), dict.pl.toastResetSent);
-getEl('langSelect').value = 'uk'; await fire(getEl('langSelect'), 'change');
+await fire(getEl('langUk'), 'click');
 emailEl.value = '';
 
 const month = getEl('monthSelect').value;
 const monthPath = `users/u1/months/${month}`;
 const cacheKey = `cloud_month_u1_${month}`;
 
-// 1. Вхід: місяць з хмари заповнює поля і потрапляє в локальну копію
+// 0g. Без входу: іконка хмари — звичайна; на порожньому сховищі — перший запуск
+const cloudIcon = () => getEl('btn-cloud').attrs['data-state'];
+const body = getEl('app-body');
+assert.equal(cloudIcon(), 'out', 'немає входу — звичайна хмара');
+assert.equal(body.classList.contains('first-run'), true, 'порожнє сховище — екран «Вітаємо!»');
+assert.equal(getEl('viewProfile').classList.contains('active'), true);
+assert.equal(getEl('auth-container').classList.contains('hidden'), false, 'у панелі хмари — форма входу');
+assert.equal(getEl('cloudSheet').attrs['aria-labelledby'], 'cloudOutTitle');
+
+// 1. Вхід (з першого запуску, через панель хмари): місяць з хмари заповнює поля і потрапляє в локальну копію
+await fire(getEl('btn-cloud'), 'click');
+assert.equal(getEl('cloudSheet').classList.contains('hidden'), false, 'кнопка хмари відкриває панель');
 cloud.set(monthPath, { baseSalary: '6100', morningShifts: '10', nightShifts: '4' });
 auth.currentUser = { uid: 'u1', email: 'user@example.com' };
 await authCb(auth.currentUser);
+assert.equal(body.classList.contains('first-run'), false, 'вхід закриває перший запуск');
+assert.equal(getEl('page1').classList.contains('active'), true, 'після входу — «Розрахунок»');
+assert.equal(store.has('profiles_v1'), false, 'вхід не створює локального профілю');
+assert.equal(cloudIcon(), 'ok', 'вхід і синхронізація — хмара з галочкою');
+assert.equal(getEl('auth-container').classList.contains('hidden'), true); assert.equal(getEl('sync-container').classList.contains('hidden'), false);
+assert.equal(getEl('cloudSheet').attrs['aria-labelledby'], 'cloudInTitle');
+assert.equal(getEl('user-email-display').innerText, 'user@example.com', 'у панелі — email акаунта');
+assert.ok(getEl('cloudSyncState').textContent.startsWith(dict.uk.cloudSynced.split('{time}')[0]), `стан «Синхронізовано …», а не "${getEl('cloudSyncState').textContent}"`);
+assert.match(getEl('cloudSyncState').textContent, /\d{2}:\d{2}$/, 'з часом');
+assert.equal(window.salaryBack(), true, '«Назад» закриває панель'); assert.equal(getEl('cloudSheet').classList.contains('hidden'), true);
 assert.equal(getEl('morningShifts').value, '10', 'поля заповнені з хмари');
 assert.ok(store.has(cacheKey), 'після успішного завантаження є локальна копія місяця');
 assert.equal(JSON.parse(store.get(cacheKey)).data.morningShifts, '10');
@@ -121,6 +142,8 @@ getEl('toast').innerText = '';
 await fire(getEl('btn-sync-down'), 'click');
 assert.equal(getEl('morningShifts').value, '10', 'при збої хмари поля беруться з локальної копії');
 assert.ok(toast().startsWith(dict.uk.toastLoadCached), `очікувався тост про копію, а не "${toast()}"`);
+assert.equal(cloudIcon(), 'off', 'помилка синхронізації — хмара з косою рискою');
+assert.equal(getEl('cloudSyncState').textContent, dict.uk.cloudNoConn);
 
 // 2b. Без мережі (navigator.onLine=false) — те саме, без очікування таймауту Firestore
 navigator.onLine = false; getDocMode = 'ok';
@@ -151,6 +174,9 @@ assert.equal(calls.setDoc[0].path, monthPath);
 assert.equal(calls.setDoc[0].data.morningShifts, '12');
 assert.equal(toast(), dict.uk.toastSaveCloud);
 assert.equal(JSON.parse(store.get(cacheKey)).data.morningShifts, '12', 'копія оновлена після збереження');
+assert.equal(cloudIcon(), 'ok', 'успішне збереження — знову хмара з галочкою');
+navigator.onLine = false; assert.equal((await fireWindow('offline'), cloudIcon()), 'off', 'мережа зникла — коса риска');
+navigator.onLine = true; await fireWindow('online'); assert.equal(cloudIcon(), 'ok', 'мережа повернулась');
 
 // 4b. Поріг PIT 120 000: накопичена база береться з місяців року, збережених у хмарі
 const profile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' };
@@ -243,7 +269,12 @@ globalThis.__salaryTest.now = new Date(2026, 11, 15, 12).getTime();
 // 5. Вихід: копія місяців і профіль акаунта прибрані, гостьові дані лишаються
 store.set('user_profile_u1', '{"baseSalary":6100}');
 store.set('guest_month_2026-01', '{"baseSalary":"5000"}');
-await fire(getEl('btn-logout'), 'click');
+await fire(getEl('btn-cloud'), 'click');
+await fire(getEl('btn-logout'), 'click');                 // «Вийти з акаунта» — у панелі хмари
+assert.equal(cloudIcon(), 'out', 'після виходу — звичайна хмара');
+assert.equal(getEl('auth-container').classList.contains('hidden'), false, 'панель знову показує вхід');
+assert.equal(body.classList.contains('first-run'), false, 'гостьові дані є — першого запуску немає');
+await fire(getEl('cloudBackdrop'), 'click'); assert.equal(getEl('cloudSheet').classList.contains('hidden'), true, 'дотик до затемнення закриває панель');
 assert.ok(![...store.keys()].some(k => k.startsWith('cloud_month_u1_')), 'копії місяців акаунта видалені');
 assert.ok(!store.has('user_profile_u1'), 'локальна копія профілю акаунта видалена');
 assert.ok(store.has('guest_month_2026-01'), 'гостьові дані не чіпаємо');
@@ -266,5 +297,5 @@ assert.equal(banner.classList.contains('hidden'), false);
 await fire(getEl('btn-update'), 'click');
 assert.equal(location.reloads, 1, '«Оновити» перезавантажує сторінку');
 
-console.log('OK: хмара (скидання пароля, кеш офлайн, збереження без мережі й зі зависанням, вихід, банер оновлення)');
+console.log('OK: хмара (перший запуск закривається входом, іконка: без входу / синхронізовано / немає з’єднання, панель хмари, скидання пароля, кеш офлайн, збереження без мережі й зі зависанням, вихід, банер оновлення)');
 process.exit(0);

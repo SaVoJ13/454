@@ -23,6 +23,13 @@
 <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V11M11 20V4M17 20v-6M3 20h18"/></symbol>
 <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5h.01"/></symbol>
 <symbol id="i-l" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol><symbol id="i-r" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+<symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></symbol>
+<symbol id="i-cloud-ok" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/><path d="M9 14.5l2.2 2.2 4-4"/></symbol>
+<symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/><path d="M4 4l16 16"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></symbol>
 </defs></svg>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <div id="update-banner" class="update-banner hidden" role="status">
@@ -31,20 +38,18 @@
 <button type="button" id="btn-update-later" class="btn" data-i18n="updateLater">Пізніше</button>
 </div>
 
-<header class="top"><div class="topbar">
-<div class="brand"><span class="mark" aria-hidden="true">zł</span><div class="brand-text"><h1 data-i18n="title">Калькулятор</h1><button type="button" class="who" id="whoBadge" data-page="4"></button></div></div>
+<header class="top" id="appHeader"><div class="topbar">
+<div class="brand"><span class="mark" aria-hidden="true">zł</span><div class="brand-text"><h1 data-i18n="title">Калькулятор</h1><span class="who" id="whoBadge"></span></div></div>
 <nav class="tabs" data-i18n-aria="ariaNav" aria-label="Навігація">
 <button type="button" class="tab" data-page="1" aria-current="page"><svg aria-hidden="true" class="icon"><use href="#i-calc"/></svg><span data-i18n="navCalc">Розрахунок</span></button>
 <button type="button" class="tab" data-page="2"><svg aria-hidden="true" class="icon"><use href="#i-doc"/></svg><span data-i18n="navDetails">Деталі</span></button>
 <button type="button" class="tab" data-page="3"><svg aria-hidden="true" class="icon"><use href="#i-chart"/></svg><span data-i18n="navStats">Статистика</span></button>
 <button type="button" class="tab" data-page="4"><svg aria-hidden="true" class="icon"><use href="#i-user"/></svg><span data-i18n="navProfile">Профіль</span></button>
 <button type="button" class="tab" data-page="5"><svg aria-hidden="true" class="icon"><use href="#i-set"/></svg><span data-i18n="navSettingsTab">Параметри</span></button></nav>
-<div class="seg" role="group" data-i18n-aria="ariaLangGrp" aria-label="Мова"><button type="button" data-lang="uk" lang="uk">UA</button><button type="button" data-lang="pl" lang="pl">PL</button></div>
-<button type="button" class="icon-btn" id="btn-theme" data-i18n-aria="ariaTheme" aria-label="Змінити тему"><svg aria-hidden="true" class="icon moon"><use href="#i-moon"/></svg><svg aria-hidden="true" class="icon sun"><use href="#i-sun"/></svg></button>
-<button type="button" class="icon-btn" data-page="4" data-i18n-aria="navProfile" aria-label="Профіль"><svg aria-hidden="true" class="icon"><use href="#i-user"/></svg><span class="dot"></span></button>
+<button type="button" class="icon-btn cloud-btn" id="btn-cloud" data-state="out" aria-haspopup="dialog" aria-controls="cloudSheet" data-i18n-aria="ariaCloud" aria-label="Зберігання в хмарі"><svg aria-hidden="true" class="icon ic-out"><use href="#i-cloud"/></svg><svg aria-hidden="true" class="icon ic-ok"><use href="#i-cloud-ok"/></svg><svg aria-hidden="true" class="icon ic-off"><use href="#i-cloud-off"/></svg></button>
 </div></header>
 
-<main>
+<main id="appMain">
 <section class="view active" id="page1">
 <div class="layout">
 <div class="aside"><section class="hero">
@@ -66,8 +71,8 @@
 <div class="field pro-only"><div class="lab"><label for="scheduleDays" data-i18n="schedDays">Графік</label><small data-i18n="hintSched">Норма змін; рахується автоматично, можна змінити</small></div><div class="ctl"><input type="number" inputmode="numeric" id="scheduleDays" placeholder=""></div></div>
 <div class="field"><div class="lab"><label for="morningShifts" data-i18n="morning">Ранкові (шт)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="morningShifts" placeholder="0"></div></div><div class="field"><div class="lab"><label for="afternoonShifts" data-i18n="afternoon">Денні (шт)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="afternoonShifts" placeholder="0"></div></div>
 <div class="field"><div class="lab"><label for="nightShifts" data-i18n="night">Нічні (шт)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="nightShifts" placeholder="0"></div></div>
-<div class="field sub"><div class="lab"><label for="nightCarryOut" data-i18n="nightCarryOut">Остання нічна зміна переходить у наступний місяць (тут 2 год)</label></div><input type="checkbox" class="chk" id="nightCarryOut" disabled></div>
-<div class="field sub"><div class="lab"><label for="nightCarryIn" data-i18n="nightCarryIn">Нічна зміна з попереднього місяця (+6 год)</label><small class="hidden" id="nightCarryInHint" data-i18n="hintNightCarryAuto">Увімкнено за попереднім місяцем</small></div><input type="checkbox" class="chk" id="nightCarryIn"></div>
+<label class="field sub sw-row" for="nightCarryOut"><span class="lab"><span class="lab-text" id="nightCarryOutLabel" data-i18n="nightCarryOut">Остання нічна зміна переходить у наступний місяць (тут 2 год)</span></span><button type="button" role="switch" class="switch" id="nightCarryOut" aria-checked="false" aria-labelledby="nightCarryOutLabel" disabled></button></label>
+<label class="field sub sw-row" for="nightCarryIn"><span class="lab"><span class="lab-text" id="nightCarryInLabel" data-i18n="nightCarryIn">Нічна зміна з попереднього місяця (+6 год)</span><small class="hidden" id="nightCarryInHint" data-i18n="hintNightCarryAuto">Увімкнено за попереднім місяцем</small></span><button type="button" role="switch" class="switch" id="nightCarryIn" aria-checked="false" aria-labelledby="nightCarryInLabel" aria-describedby="nightCarryInHint"></button></label>
 <div class="field"><div class="lab"><label for="weekendDays" data-i18n="weekend">Вихідні (днів)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="weekendDays" placeholder="0"></div></div></section>
 
 <section class="card"><h3 data-i18n="cardOvertime">Надгодини</h3>
@@ -139,50 +144,45 @@
 <p class="card-sub hidden" id="dedRoundNote" data-i18n="dedRoundNote">Сума рядків може відрізнятися на 0,01–0,02 zł через округлення</p></details></section>
 
 <section class="view" id="viewProfile">
-<h2 class="vt" data-i18n="navProfile">Профіль</h2><div class="layout one"><div class="forms">
-<section class="card" id="profilesCard"><h3 data-i18n="profilesTitle">Профілі</h3>
-<p class="card-sub hidden" id="profilesSignedIn"></p>
-<div id="profilesLocal">
-<div class="pills prof-list" id="profileList" role="group" data-i18n-aria="profilesTitle" aria-label="Профілі"></div>
-<div class="prof-actions" id="profileActions">
-<button type="button" id="btn-profile-add" class="btn" data-i18n="profileAdd">Додати профіль</button>
-<button type="button" id="btn-profile-rename" class="btn" data-i18n="profileRename">Перейменувати</button>
-<button type="button" id="btn-profile-delete" class="btn danger hidden" data-i18n="profileDelete">Видалити</button></div>
-<div class="hidden" id="profileEdit">
-<div class="stack"><label for="profileName" id="profileNameLabel">Додати профіль</label><div class="ctl"><input type="text" id="profileName" maxlength="60" autocomplete="off" data-i18n-ph="profileNamePh" placeholder="Назва профілю"></div></div>
+<h2 class="vt" id="profileTitle" data-i18n="navProfile">Профіль</h2>
+<div class="first-intro" id="firstRunIntro"><h2 class="vt" data-i18n="firstTitle">Вітаємо!</h2>
+<p class="intro-text"><span data-i18n="firstTextA">Дані зберігаються на телефоні. Хмара —</span> <svg aria-hidden="true" class="icon inline-ico"><use href="#i-cloud"/></svg> <span data-i18n="firstTextB">угорі.</span></p></div>
+<div class="layout one"><div class="forms prof">
+<div class="prof-row" id="profilesLocal">
+<div class="prof-strip"><div class="prof-list" id="profileList" role="group" data-i18n-aria="profilesTitle" aria-label="Профілі"></div>
+<button type="button" class="prof-add" id="btn-profile-add" data-i18n-aria="profileAdd" aria-label="Додати профіль"><svg aria-hidden="true" class="icon"><use href="#i-plus"/></svg></button></div>
+<button type="button" class="info-btn" id="btn-profiles-info" aria-expanded="false" aria-controls="profilesInfo" data-i18n-aria="ariaProfilesInfo" aria-label="Про профілі"><svg aria-hidden="true" class="icon"><use href="#i-info"/></svg></button></div>
+<p class="prof-note hidden" id="profilesInfo" data-i18n="profilesInfo">Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються на цьому телефоні. Щоб зберегти їх у хмарі, натисніть хмаринку вгорі.</p>
+<p class="prof-note hidden" id="profilesSignedIn"></p>
+
+<p class="sec-label" id="secProfileLabel" data-i18n="secProfile">Профіль</p>
+<div class="name-row" id="profileNameRow"><label for="profileName" data-i18n="profileNameLabel">Назва</label><input type="text" id="profileName" maxlength="60" autocomplete="off" data-i18n-ph="profileNamePhNew" placeholder="Напр., Володимир"></div>
 <p class="field-error hidden" id="profileNameError" role="alert"></p>
-<button type="button" id="btn-profile-name-save" class="btn primary" data-i18n="profileNameSave">Зберегти</button>
-<button type="button" id="btn-profile-name-cancel" class="btn" data-i18n="profileCancel">Скасувати</button></div>
-<div class="hidden" id="profileDelete" role="alertdialog" aria-labelledby="profileDeleteText">
-<p class="prof-confirm" id="profileDeleteText"></p>
-<button type="button" id="btn-profile-delete-yes" class="btn danger" data-i18n="profileDeleteYes">Так, видалити</button>
-<button type="button" id="btn-profile-delete-no" class="btn" data-i18n="profileCancel">Скасувати</button></div>
-<p class="card-sub" data-i18n="profilesNote">Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються лише на цьому пристрої.</p>
-</div></section>
 
-<section class="card"><h3 data-i18n="profSettingsTitle">Налаштування профілю</h3>
-<div class="field"><div class="lab"><label for="profBaseSalary" data-i18n="profBase">Стандартна ставка (zł)</label></div><div class="ctl"><input type="number" inputmode="decimal" id="profBaseSalary" placeholder="0"></div></div>
-<div class="field"><div class="lab"><label for="profUnder26" data-i18n="profAge">Вік до 26 років</label></div><div class="ctl sel"><select id="profUnder26"><option value="no" data-i18n="no">Ні</option><option value="yes" data-i18n="yes">Так</option></select></div></div><div class="field"><div class="lab"><label for="profPpk" data-i18n="profPpk">Участь у PPK</label></div><div class="ctl sel"><select id="profPpk"><option value="no" data-i18n="no">Ні</option><option value="yes" data-i18n="yes">Так</option></select></div></div><div class="field"><div class="lab"><label for="profExtraDeduction" data-i18n="profExtraDeduction">Додаткове відрахування, zł/міс.</label><small data-i18n="hintExtraDeduction">Наприклад, додаткове страхування</small></div><div class="ctl"><input type="text" inputmode="decimal" autocomplete="off" id="profExtraDeduction" data-clear-on-focus="0" placeholder="0"></div></div>
+<p class="sec-label sec-gap" data-i18n="secSettings">Налаштування</p>
+<div class="tiles">
+<div class="tile"><label class="tile-lab" for="profBaseSalary" data-i18n="tileRate">Ставка, zł</label><input type="number" inputmode="decimal" id="profBaseSalary" class="tile-input" placeholder="0"></div>
+<div class="tile"><label class="tile-lab" for="profExtraDeduction" data-i18n="tileDeduction">Відрахування, zł/міс.</label><input type="text" inputmode="decimal" autocomplete="off" id="profExtraDeduction" data-clear-on-focus="0" class="tile-input" placeholder="0" aria-describedby="profExtraDeductionHint"><small class="tile-hint" id="profExtraDeductionHint" data-i18n="tileDeductionHint">Напр., страхування</small></div>
+<div class="tile tile-sw"><div class="tile-top"><span class="tile-lab" id="profUnder26Label" data-i18n="tileUnder26">До 26 років</span><button type="button" role="switch" class="switch" id="profUnder26" aria-checked="false" aria-labelledby="profUnder26Label"></button></div><span class="tile-state" id="profUnder26State" aria-hidden="true">Ні</span></div>
+<div class="tile tile-sw"><div class="tile-top"><span class="tile-lab" id="profPpkLabel" data-i18n="tilePpk">PPK</span><button type="button" role="switch" class="switch" id="profPpk" aria-checked="false" aria-labelledby="profPpkLabel"></button></div><span class="tile-state" id="profPpkState" aria-hidden="true">Ні</span></div>
+</div>
 <p class="field-error hidden" id="profExtraDeductionError" role="alert"></p>
-<button type="button" id="btn-save-profile" class="btn primary" data-i18n="btnSaveProfile">Зберегти профіль</button></section>
 
-<section class="card"><h3 data-i18n="cloudHeader">Акаунт & Хмара</h3>
-<form id="loginForm" autocomplete="on" novalidate><div id="auth-container">
-<div class="stack"><label for="email" data-i18n="lblEmail">Email</label><div class="ctl"><input type="email" id="email" name="username" autocomplete="username" placeholder="Email"></div></div>
-<div class="known hidden" id="knownEmails"><p class="card-sub" data-i18n="knownEmailsTitle">Раніше входили:</p><div class="known-list" id="knownEmailsList"></div></div>
-<div class="stack"><label for="password" data-i18n="lblPwd">Пароль</label><div class="ctl"><input type="password" id="password" name="password" autocomplete="current-password" data-i18n-ph="pwdPlaceholder" placeholder="Пароль"></div></div>
-<button type="button" id="btn-reset-password" class="link-btn" data-i18n="btnResetPassword">Забули пароль?</button>
-<button type="submit" id="btn-login" class="btn primary" data-i18n="btnLogin">Увійти (PRO)</button>
-<button type="button" id="btn-register" class="btn" data-i18n="btnRegister">Реєстрація</button>
-<p class="card-sub" data-i18n="guestNote">Без входу дані зберігаються лише на цьому пристрої.</p></div></form>
-<div id="sync-container" class="hidden"><p class="acct" id="user-email-display"></p>
-<button type="button" id="btn-sync-down" class="btn" data-i18n="btnLoadCloud">Завантажити</button>
-<button type="button" id="btn-logout" class="btn" data-i18n="btnLogout">Вийти</button></div></section></div></div></section>
+<div class="prof-foot" id="profileFoot">
+<button type="button" id="btn-profile-delete" class="text-btn danger hidden" data-i18n="profileDeleteBtn">Видалити профіль</button>
+<button type="button" id="btn-profile-cancel" class="text-btn hidden" data-i18n="profileCancel">Скасувати</button>
+<button type="button" id="btn-save-profile" class="btn primary">Зберегти</button></div>
+<div class="prof-confirm-box hidden" id="profileDelete" role="alertdialog" aria-labelledby="profileDeleteText">
+<p class="prof-confirm" id="profileDeleteText"></p>
+<div class="prof-foot"><button type="button" id="btn-profile-delete-no" class="text-btn" data-i18n="profileCancel">Скасувати</button>
+<button type="button" id="btn-profile-delete-yes" class="btn danger-fill" data-i18n="profileDeleteYes">Так, видалити</button></div></div>
+</div></div></section>
 
 <section class="view" id="viewSettings">
 <h2 class="vt" data-i18n="navSettings">Налаштування</h2><div class="layout one"><div class="forms"><section class="card">
-<div class="field"><div class="lab"><label for="langSelect" data-i18n="menuLang">Мова</label></div><div class="ctl sel"><select id="langSelect"><option value="uk">Українська</option><option value="pl">Polski</option></select></div></div>
-<div class="field"><div class="lab"><label for="themeSelect" data-i18n="menuTheme">Тема</label></div><div class="ctl sel"><select id="themeSelect"><option value="light" data-i18n="optThemeLight">Світла</option><option value="dark" data-i18n="optThemeDark">Темна</option></select></div></div>
+<h3 data-i18n="secAppearance">Вигляд</h3>
+<div class="field"><div class="lab"><span class="lab-text" id="langLabel" data-i18n="menuLang">Мова</span></div><div class="segmented" role="group" aria-labelledby="langLabel"><button type="button" id="langUk" data-lang="uk" lang="uk" aria-pressed="false">UA</button><button type="button" id="langPl" data-lang="pl" lang="pl" aria-pressed="false">PL</button></div></div>
+<div class="field"><div class="lab"><span class="lab-text" id="themeLabel" data-i18n="darkTheme">Темна тема</span></div><button type="button" role="switch" class="switch" id="themeSwitch" aria-checked="false" aria-labelledby="themeLabel"></button></div>
 </section>
 <section class="card"><h3 data-i18n="secMinWage">Мінімальна зарплата</h3>
 <div id="minWageFields"></div>
@@ -221,6 +221,34 @@
 <p class="card-sub" data-i18n="statsNote">Враховано збережені місяці періоду.</p>
 </div></div></div></section>
 </main>
+<div class="sheet-backdrop hidden" id="cloudBackdrop"></div>
+<section class="sheet hidden" id="cloudSheet" role="dialog" aria-modal="true" aria-labelledby="cloudOutTitle" tabindex="-1">
+<div class="sheet-handle" aria-hidden="true"></div>
+<button type="button" class="sheet-close" id="btn-cloud-close" data-i18n-aria="ariaClose" aria-label="Закрити"><svg aria-hidden="true" class="icon"><use href="#i-x"/></svg></button>
+<div id="auth-container">
+<div class="sheet-ico"><svg aria-hidden="true" class="icon"><use href="#i-cloud"/></svg></div>
+<h2 class="sheet-title" id="cloudOutTitle" data-i18n="cloudOutTitle">Зберігати в хмарі</h2>
+<p class="sheet-text" data-i18n="cloudOutText">Увійдіть, щоб зберігати дані в хмарі й бачити їх на інших пристроях і на сайті.</p>
+<div class="segmented wide" role="group" data-i18n-aria="ariaAuthMode" aria-label="Вхід або реєстрація"><button type="button" id="authModeLogin" aria-pressed="true" data-i18n="authModeLogin">Вхід</button><button type="button" id="authModeRegister" aria-pressed="false" data-i18n="authModeRegister">Реєстрація</button></div>
+<form id="loginForm" autocomplete="on" novalidate>
+<div class="stack"><label for="email" data-i18n="lblEmail">Email</label><div class="ctl"><input type="email" id="email" name="username" autocomplete="username" placeholder="Email"></div></div>
+<div class="known hidden" id="knownEmails"><p class="card-sub" data-i18n="knownEmailsTitle">Раніше входили:</p><div class="known-list" id="knownEmailsList"></div></div>
+<div class="stack"><label for="password" data-i18n="lblPwd">Пароль</label><div class="ctl pwd"><input type="password" id="password" name="password" autocomplete="current-password" data-i18n-ph="pwdPlaceholder" placeholder="Пароль"><button type="button" class="eye-btn" id="btn-pwd-eye" aria-pressed="false" aria-controls="password" aria-label="Показати пароль"><svg aria-hidden="true" class="icon ic-eye"><use href="#i-eye"/></svg><svg aria-hidden="true" class="icon ic-eye-off"><use href="#i-eye-off"/></svg></button></div></div>
+<button type="submit" id="btn-login" class="btn primary" data-i18n="btnLogin">Увійти</button>
+<button type="button" id="btn-register" class="btn primary hidden" data-i18n="btnCreateAccount">Створити акаунт</button>
+<button type="button" id="btn-reset-password" class="link-btn" data-i18n="btnResetPassword">Забули пароль?</button></form>
+</div>
+<div id="sync-container" class="hidden">
+<div class="sheet-ico ok"><svg aria-hidden="true" class="icon"><use href="#i-cloud-ok"/></svg></div>
+<h2 class="sheet-title" id="cloudInTitle" data-i18n="cloudInTitle">Хмару підключено</h2>
+<div class="sheet-card">
+<div class="row"><span data-i18n="cloudAccount">Акаунт</span><b class="acct" id="user-email-display"></b></div>
+<div class="row"><span data-i18n="cloudState">Стан</span><b class="sync-state" id="cloudSyncState"></b></div></div>
+<button type="button" id="btn-sync-down" class="btn" data-i18n="btnLoadCloud">Завантажити з хмари</button>
+<button type="button" id="btn-logout" class="btn" data-i18n="btnLogoutAccount">Вийти з акаунта</button>
+<p class="sheet-note" data-i18n="cloudLogoutNote">Після виходу дані лишаться на телефоні.</p>
+</div>
+</section>
 
 <script src="js/version.js"></script>
 <script type="module" src="js/app.js"></script>

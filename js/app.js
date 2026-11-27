@@ -9,7 +9,7 @@ import { saveMonthCache, loadMonthCache, clearMonthCache, listMonthCache } from 
 import { pitBaseOf, pitExtra, yearToDate } from './pit.js';
 import { collectPeriodStats, readGuestRecords, availableYears, normalizePeriod } from './stats.js';
 import { drawIncomeChart, drawMixChart, drawMixLegend } from './charts.js';
-import { ensureProfiles, activeProfile, displayName, profileStorage, createProfile, renameProfile, deleteProfile, setActiveProfile } from './profiles.js';
+import { ensureProfiles, activeProfile, displayName, profileStorage, createProfile, renameProfile, deleteProfile, setActiveProfile, checkName, isFirstRun, hasLocalProfileData, DEFAULT_ID, PROFILES_KEY } from './profiles.js';
 
 /* Лише для тестів: tests/cloud.mjs підставляє фейковий Firebase і короткий таймаут. У браузері не задано. */
 const TEST = globalThis.__salaryTest || {};
@@ -53,7 +53,7 @@ function initCloud() {
 
 window.addEventListener('online', () => { initCloud(); });
 
-const NON_MONTH_IDS = new Set(['langSelect', 'themeSelect', 'email', 'password', 'profBaseSalary', 'profUnder26', 'profPpk', 'profExtraDeduction', 'profileName']);
+const NON_MONTH_IDS = new Set(['langUk', 'langPl', 'themeSwitch', 'email', 'password', 'profBaseSalary', 'profUnder26', 'profPpk', 'profExtraDeduction', 'profileName']);
 const MIN_WAGE_ID = 'minWage';       // поля «Параметрів» minWage2028… створюються за потреби
 const isMonthField = el => !NON_MONTH_IDS.has(el.id) && !el.id.startsWith(MIN_WAGE_ID);
 
@@ -79,11 +79,18 @@ let fullFeatures = true;
 let currentActivePage = 1;
 let requestCounter = 0;
 let monthsCollectionCache = null;
-let userProfile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' };
+const DEFAULT_PROFILE = () => ({ baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' });   // коли збережених налаштувань немає
+/* Форма нового профілю («+» і перший запуск): відрахування явно 0. Старі записи без extraDeduction рахує deductionOf(). */
+const NEW_PROFILE = () => ({ ...DEFAULT_PROFILE(), insurance: 'no', extraDeduction: 0 });
+let userProfile = DEFAULT_PROFILE();
 window.cachedL4DailyRate = null;
 
-/* ЛОКАЛЬНІ ПРОФІЛІ (js/profiles.js). Дані гостя — у сховищі активного профілю; поки є вхід в акаунт, профілі не діють. */
-let profiles = ensureProfiles(localStorage);
+/* ЛОКАЛЬНІ ПРОФІЛІ (js/profiles.js). Дані гостя — у сховищі активного профілю; поки є вхід в акаунт, профілі не діють.
+   Перший запуск (на пристрої немає ні локальних даних, ні слідів акаунта): екран «Вітаємо!» без нижнього меню. Доки профіль
+   не створено, profiles_v1 не записується (список лише в пам'яті), тож закритий до створення застосунок покаже екран знову. */
+let firstRun = isFirstRun(localStorage);
+const MEMORY_PROFILES = () => ({ active: DEFAULT_ID, list: [{ id: DEFAULT_ID, name: '', createdAt: '', autoName: true }] });
+let profiles = firstRun ? MEMORY_PROFILES() : ensureProfiles(localStorage);
 /* Показувана назва: автоматична («Мій профіль» / «Mój profil») — мовою інтерфейсу, тож змінюється разом із мовою. */
 const profileLabel = p => displayName(p, dict[currentLang].profileDefaultName);
 const guestStore = () => profileStorage(localStorage, profiles.active);
@@ -95,7 +102,7 @@ const guestMonthKey = monthVal => `guest_month_${monthVal}`;
 async function loadProfile() {
   const uid = auth.currentUser ? auth.currentUser.uid : 'guest';
   const localKey = `user_profile_${uid}`;
-  userProfile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' };
+  userProfile = DEFAULT_PROFILE();
   if (auth.currentUser) {
     try {
       const profSnap = await getDoc(doc(db, "users", uid, "profile", "userProfile"));
@@ -114,15 +121,30 @@ async function loadProfile() {
     const savedLocal = guestStore().getItem(GUEST_PROFILE_KEY);           // налаштування активного локального профілю
     if (savedLocal) try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
   }
-  document.getElementById('profBaseSalary').value = userProfile.baseSalary;
-  document.getElementById('profUnder26').value = userProfile.under26;
-  document.getElementById('profPpk').value = userProfile.ppk;
-  showProfileDeduction();
+  fillProfileForm(firstRun ? NEW_PROFILE() : userProfile);
 }
 
+/* Плитки налаштувань («Профіль» і перший запуск): ставка, відрахування, вік до 26, PPK. */
+function fillProfileForm(p) {
+  document.getElementById('profBaseSalary').value = p.baseSalary;
+  setSwitch('profUnder26', p.under26 === 'yes');
+  setSwitch('profPpk', p.ppk === 'yes');
+  showProfileDeduction(p);
+}
+
+/* Повзунок (<button role="switch">): стан — aria-checked; у профілі зберігається 'yes' / 'no', як раніше вибір «Так / Ні». */
+const switchOn = id => document.getElementById(id).getAttribute('aria-checked') === 'true';
+const switchValue = id => (switchOn(id) ? 'yes' : 'no');
+const SWITCH_STATE_IDS = { profUnder26: 'profUnder26State', profPpk: 'profPpkState' };
+function setSwitch(id, on) {
+  document.getElementById(id).setAttribute('aria-checked', String(!!on));
+  if (SWITCH_STATE_IDS[id]) document.getElementById(SWITCH_STATE_IDS[id]).textContent = on ? dict[currentLang].yes : dict[currentLang].no;
+}
+for (const id of Object.keys(SWITCH_STATE_IDS)) document.getElementById(id).addEventListener('click', () => setSwitch(id, !switchOn(id)));
+
 /* Поле профілю з комою, як пишуть суми в UA/PL; старий профіль показує суму, яку для нього рахує deductionOf(). */
-function showProfileDeduction() {
-  document.getElementById('profExtraDeduction').value = formatAmount(deductionOf(userProfile));
+function showProfileDeduction(p = userProfile) {
+  document.getElementById('profExtraDeduction').value = formatAmount(deductionOf(p));
   showDeductionError(null);
 }
 
@@ -147,16 +169,29 @@ document.getElementById('profExtraDeduction').addEventListener('input', () => {
   if (deductionError) showDeductionError(checkDeduction(document.getElementById('profExtraDeduction').value).error);
 });
 
-document.getElementById('btn-save-profile').addEventListener('click', async () => {
+/* «Зберегти» на вкладці «Профіль»: назва (локальний профіль) і налаштування разом.
+   Звичайний режим — перейменування (якщо назву змінили) і налаштування активного профілю; «+» — новий профіль, що одразу стає
+   активним; перший запуск — перший профіль. Поки є вхід в акаунт, назви немає: зберігаються лише налаштування (як у 1.19.1).
+   Помилка назви чи суми відрахування — нічого не зберігається. */
+async function saveProfileForm() {
   const deduction = checkDeduction(document.getElementById('profExtraDeduction').value);
   showDeductionError(deduction.error);
-  if (!deduction.ok) return;                          // з неправильною сумою профіль не зберігається
-  const profBase = parseFloat(document.getElementById('profBaseSalary').value);
-  userProfile.baseSalary = isNaN(profBase) ? 5750 : profBase;
-  userProfile.under26 = document.getElementById('profUnder26').value;
-  userProfile.ppk = document.getElementById('profPpk').value;
-  userProfile.extraDeduction = deduction.value;
-  userProfile.insurance = userProfile.extraDeduction > 0 ? 'yes' : 'no';     // це поле читає веб-версія
+  const kind = signedIn ? 'account' : profileEdit ? profileEdit.kind : 'edit';
+  const nameText = document.getElementById('profileName').value;
+  const name = kind === 'account' ? { ok: true } : checkName(profiles, nameText, kind === 'add' ? null : profiles.active);
+  showProfileNameError(name.ok ? null : name.error === 'duplicate' ? 'duplicate' : 'length');
+  if (!deduction.ok || !name.ok) return;                          // з помилкою нічого не зберігається
+  const settings = { ...userProfile, ...settingsFromForm(deduction.value) };
+  if (kind === 'first') return createFirstProfile(nameText, settings);
+  if (kind === 'add') return createAnotherProfile(nameText, settings);
+  if (kind === 'edit') {
+    const renamed = renameProfile(localStorage, profiles.active, nameText);
+    if (renamed.ok) {
+      profiles = renamed.state; renderProfiles();
+      document.getElementById('profileName').value = profileLabel(activeProfile(profiles));   // збережена назва (без пробілів по краях)
+    }
+  }
+  userProfile = settings;
   showProfileDeduction();
   const uid = auth.currentUser ? auth.currentUser.uid : 'guest';
   if (auth.currentUser) localStorage.setItem(`user_profile_${uid}`, JSON.stringify(userProfile));
@@ -172,7 +207,21 @@ document.getElementById('btn-save-profile').addEventListener('click', async () =
   await updateYtdCache(monthVal);        // вік до 26 років змінює, чи діє поріг
   calculateSalary();
   showToast(profileCloudFailed ? dict[currentLang].toastProfLocalOnly : dict[currentLang].toastProfOk);
-});
+}
+
+/* Значення плиток у полях профілю (той самий формат, що й раніше). */
+function settingsFromForm(extraDeduction) {
+  const profBase = parseFloat(document.getElementById('profBaseSalary').value);
+  return {
+    baseSalary: isNaN(profBase) ? 5750 : profBase,
+    under26: switchValue('profUnder26'),
+    ppk: switchValue('profPpk'),
+    extraDeduction,
+    insurance: extraDeduction > 0 ? 'yes' : 'no'           // це поле читає веб-версія
+  };
+}
+
+document.getElementById('btn-save-profile').addEventListener('click', saveProfileForm);
 
 function applyProfileToMain() {
   document.getElementById('baseSalary').value = userProfile.baseSalary;
@@ -184,12 +233,15 @@ window.setLang = function(lang) {
   document.querySelectorAll('[data-i18n]').forEach(el => { const v = t[el.dataset.i18n]; if (v) el.textContent = el.hasAttribute('data-nocolon') ? v.replace(/:\s*$/, '') : v; });
   document.querySelectorAll('[data-i18n-ph]').forEach(el => { const v = t[el.dataset.i18nPh]; if (v) el.placeholder = v; });
   document.querySelectorAll('[data-i18n-aria]').forEach(el => { const v = t[el.dataset.i18nAria]; if (v) el.setAttribute('aria-label', v); });
-  document.querySelectorAll('button[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+  // «Параметри» → «Вигляд»: сегментний перемикач UA | PL
+  document.getElementById('langUk').setAttribute('aria-pressed', String(lang === 'uk'));
+  document.getElementById('langPl').setAttribute('aria-pressed', String(lang === 'pl'));
   document.title = t.appTitle;
-  document.getElementById('langSelect').value = lang;
   showDeductionError(deductionError);
   showProfileNameError(profileNameError);
-  renderAppVersion(); renderKnownEmails(); renderProfiles(); initMonths(); renderMinWageSettings(); calculateSalary(); refreshPeriod(); paintStats();
+  for (const id of Object.keys(SWITCH_STATE_IDS)) setSwitch(id, switchOn(id));      // «Так» / «Ні» під повзунками
+  showPassword(document.getElementById('password').type === 'text');
+  renderAppVersion(); renderKnownEmails(); renderProfiles(); renderAuthMode(); renderCloud(); initMonths(); renderMinWageSettings(); calculateSalary(); refreshPeriod(); paintStats();
 };
 
 /* «ПАРАМЕТРИ», унизу: «Версія 1.19.1» (у шапці версії немає — там місце для назви застосунку й профілю). */
@@ -250,7 +302,7 @@ async function changeMinWage(year, input, error) {
 window.setTheme = function(theme) {
   document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : '');
   localStorage.setItem('theme', theme);
-  document.getElementById('themeSelect').value = theme;
+  document.getElementById('themeSwitch').setAttribute('aria-checked', String(theme === 'dark'));      // «Параметри» → «Темна тема»
   const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = theme === 'dark' ? '#0a0e16' : '#f2f4f8';
 };
 
@@ -298,14 +350,16 @@ function revealUrlopHintOnce() {
   localStorage.setItem(URLOP_HINT_SEEN_KEY, '1');
 }
 
-/* Прапорці переходу нічної зміни: у даних місяця це true/false (в інших полів — рядок value). */
+/* Повзунки переходу нічної зміни: у даних місяця це true/false (в інших полів — рядок value). Кнопки не входять у
+   querySelectorAll('input, select') і не дають подій input/change, тож їх обробляємо явно. */
 const CARRY_IDS = new Set(['nightCarryOut', 'nightCarryIn']);
-const isCarryOn = id => { const el = document.getElementById(id); return !!el.checked && !el.disabled; };
+const isCarryOn = id => switchOn(id) && !document.getElementById(id).disabled;
 
 function collectMonthData(data = {}) {
   document.querySelectorAll('input, select').forEach(el => {
-    if (isMonthField(el) && el.id !== BONUS_SELECT_ID) data[el.id] = CARRY_IDS.has(el.id) ? isCarryOn(el.id) : el.value;
+    if (isMonthField(el) && el.id !== BONUS_SELECT_ID && !CARRY_IDS.has(el.id)) data[el.id] = el.value;
   });
+  for (const id of CARRY_IDS) data[id] = isCarryOn(id);
   data.bonusTotalPct = selectedBonusPct();
   return data;
 }
@@ -350,7 +404,7 @@ function keptLegacyBonusFields(prev) {
 }
 
 function setCarryIn(on, auto = false) {
-  document.getElementById('nightCarryIn').checked = on;
+  setSwitch('nightCarryIn', on);
   document.getElementById('nightCarryInHint').classList.toggle('hidden', !auto);
 }
 
@@ -428,16 +482,23 @@ async function handleAuthState(user) {
   requestCounter++; monthsCollectionCache = null;
   signedIn = !!user; signedInEmail = user ? user.email : '';
   fullFeatures = true;                 // і локальний профіль, і акаунт
+  syncState = user ? 'pending' : null;
+  // Перший запуск: вхід його закриває (дані беруться з хмари); після виходу він знову потрібен, лише якщо локального профілю досі немає.
+  if (user) setFirstRun(false);
+  else if (guestReady) setFirstRun(!hasLocalProfileData(localStorage));
+  if (!firstRun && !localStorage.getItem(PROFILES_KEY) && !user) profiles = ensureProfiles(localStorage);
   document.getElementById('app-body').classList.toggle('is-logged-in', signedIn);
   document.getElementById('app-body').classList.toggle('full-features', fullFeatures);
   document.getElementById('auth-container').classList.toggle('hidden', signedIn);
   document.getElementById('sync-container').classList.toggle('hidden', !signedIn);
+  document.getElementById('cloudSheet').setAttribute('aria-labelledby', signedIn ? 'cloudInTitle' : 'cloudOutTitle');
   document.querySelectorAll('[data-cloud-only]').forEach(el => el.classList.toggle('hidden', !signedIn));
   if (!user) showLoginScreen();
-  renderProfiles();
+  if (profileEdit && profileEdit.kind === 'add') profileEdit = null;    // «+» не переживає входу чи виходу
+  renderProfiles(); renderCloud();
   await loadProfile();
   if (user) {
-    document.getElementById('user-email-display').innerText = "👤 " + user.email;
+    document.getElementById('user-email-display').innerText = user.email;
     await loadCloudData();
   } else {
     await loadLocalData();
@@ -459,7 +520,7 @@ function fillFrom(d) {
       el.value = d[el.id];
     }
   });
-  document.getElementById('nightCarryOut').checked = d.nightCarryOut === true;
+  setSwitch('nightCarryOut', d.nightCarryOut === true);
   setCarryIn(d.nightCarryIn === true);
   if (hasBonusTotal(d)) setBonusForm(d.bonusTotalPct); else openLegacyBonus(d);
 }
@@ -468,7 +529,7 @@ async function handleSyncUp() {
   if (!auth.currentUser) return;
   const monthVal = document.getElementById('monthSelect').value;
   if (!monthVal) return showToast(dict[currentLang].toastSelectMonth);
-  if (navigator.onLine === false) return showToast(dict[currentLang].toastSaveOffline);   // setDoc без мережі висить без відповіді
+  if (navigator.onLine === false) { markSync(false); return showToast(dict[currentLang].toastSaveOffline); }   // setDoc без мережі висить без відповіді
   const saveBtns = document.querySelectorAll('[data-sync-up]');
   saveBtns.forEach(b => { b.disabled = true; });
   const data = collectMonthData({ updatedAt: new Date().toISOString() });
@@ -477,13 +538,14 @@ async function handleSyncUp() {
     const kept = keptLegacyBonusFields(loadMonthCache(localStorage, auth.currentUser.uid, monthVal)?.data);   // у хмарі їх лишає merge
     saveMonthCache(localStorage, auth.currentUser.uid, monthVal, { ...kept, ...data });
     if (legacyBonus && document.getElementById('monthSelect').value === monthVal) { setBonusForm(data.bonusTotalPct); calculateSalary(); }
-    showToast(dict[currentLang].toastSaveCloud); monthsCollectionCache = null;
+    showToast(dict[currentLang].toastSaveCloud); monthsCollectionCache = null; markSync(true);
     const uid = auth.currentUser.uid;
     const next = await withTimeout(savedCloudMonth(uid, shiftMonthId(monthVal, -1)), SAVE_TIMEOUT_MS()).catch(() => null);
     if (takeNextCarryInWarning(monthVal, data, next)) showToast(dict[currentLang].toastSaveCloud + '\n' + dict[currentLang].toastNextCarryIn, 8000);
     await updateL4Cache(monthVal);
   } catch (error) {
     // таймаут = немає зв'язку з хмарою (запис міг бути в черзі Firestore, повторне збереження безпечне: merge)
+    markSync(false);
     showToast(error && error.message === 'timeout' ? dict[currentLang].toastSaveOffline : dict[currentLang].toastSaveErr + authMsg(error));
   }
   finally { saveBtns.forEach(b => { b.disabled = false; }); }
@@ -502,9 +564,35 @@ async function login() {
   } catch (e) { showToast(dict[currentLang].toastLoginErr + authMsg(e)); }
 }
 
-document.getElementById('loginForm').addEventListener('submit', e => { e.preventDefault(); return login(); });   // кнопка «Увійти» та Enter
+/* Панель хмари: перемикач «Вхід | Реєстрація». Відправлення форми (кнопка «Увійти», Enter) — дія вибраного режиму. */
+let authMode = 'login';
+document.getElementById('loginForm').addEventListener('submit', e => { e.preventDefault(); return authMode === 'register' ? register() : login(); });
 
-document.getElementById('btn-register').addEventListener('click', async () => {
+function renderAuthMode() {
+  const reg = authMode === 'register';
+  document.getElementById('authModeLogin').setAttribute('aria-pressed', String(!reg));
+  document.getElementById('authModeRegister').setAttribute('aria-pressed', String(reg));
+  document.getElementById('btn-login').classList.toggle('hidden', reg);
+  document.getElementById('btn-register').classList.toggle('hidden', !reg);
+  document.getElementById('btn-reset-password').classList.toggle('hidden', reg);
+}
+const setAuthMode = mode => { authMode = mode; renderAuthMode(); };
+document.getElementById('authModeLogin').addEventListener('click', () => setAuthMode('login'));
+document.getElementById('authModeRegister').addEventListener('click', () => setAuthMode('register'));
+
+/* «Око» в полі пароля: показати / сховати введене (сам пароль нікуди не записується). */
+function showPassword(on) {
+  document.getElementById('password').type = on ? 'text' : 'password';
+  const eye = document.getElementById('btn-pwd-eye');
+  eye.setAttribute('aria-pressed', String(on));
+  eye.setAttribute('aria-label', on ? dict[currentLang].ariaHidePwd : dict[currentLang].ariaShowPwd);
+  eye.classList.toggle('on', on);
+}
+document.getElementById('btn-pwd-eye').addEventListener('click', () => showPassword(document.getElementById('password').type !== 'text'));
+
+document.getElementById('btn-register').addEventListener('click', () => register());
+
+async function register() {
   if (!(await initCloud())) return showToast(dict[currentLang].toastOffline);
   const email = document.getElementById('email').value, password = document.getElementById('password');
   password.setAttribute('autocomplete', 'new-password');            // менеджер паролів сприймає його як новий пароль
@@ -514,13 +602,14 @@ document.getElementById('btn-register').addEventListener('click', async () => {
     showToast(dict[currentLang].toastRegOk);
   } catch (e) { showToast(dict[currentLang].toastRegErr + authMsg(e)); }
   finally { password.setAttribute('autocomplete', 'current-password'); }
-});
+}
 
 /* Екран входу (старт гостя й вихід з акаунта): порожній пароль і остання адреса в полі. */
 function showLoginScreen() {
   const [last] = readKnownEmails(localStorage);
   if (last) document.getElementById('email').value = last;
   document.getElementById('password').value = '';
+  showPassword(false); setAuthMode('login');
   renderKnownEmails();
 }
 
@@ -597,9 +686,11 @@ async function loadCloudData() {
     snap = await getDoc(doc(db, "users", uid, "months", monthVal));
   } catch (e) {
     if (currentReq !== requestCounter) return false;
+    markSync(false);
     return showCachedMonth(uid, monthVal, defaultSched);
   }
   if (currentReq !== requestCounter) return;
+  markSync(true);
   try {
     if (snap.exists()) {
       saveMonthCache(localStorage, uid, monthVal, snap.data());
@@ -682,7 +773,7 @@ function clearInputs() {
   });
   document.getElementById('extraBonus').value = '';
   setBonusForm(15);
-  document.getElementById('nightCarryOut').checked = false;
+  setSwitch('nightCarryOut', false);
   setCarryIn(false);
   const monthVal = document.getElementById('monthSelect').value;
   if(monthVal) document.getElementById('scheduleDays').value = stateDaysFor(monthVal);
@@ -956,7 +1047,6 @@ appBody.addEventListener('input', e => {
   const id = e.target.id;
   if (id === 'monthSelect' || !isMonthField(e.target)) return;
   leaveLegacyBonus(id);
-  if (id === 'nightCarryIn') document.getElementById('nightCarryInHint').classList.add('hidden');   // далі це вибір користувача
   if (SCHED_IDS.includes(id)) syncSchedule();
   calculateSalary(); saveLocalGuestData();
   if (id === 'vacationDays') {
@@ -973,9 +1063,19 @@ appBody.addEventListener('change', e => {
   } else if (isMonthField(e.target)) {
     leaveLegacyBonus(id);
     calculateSalary(); saveLocalGuestData();
-    if (id === 'nightCarryOut' && !auth.currentUser) warnGuestNextCarryIn();
   }
 });
+
+/* Дотик до повзунка чи до його рядка (<label>): зміна місяця, як і в інших полів. */
+function toggleCarry(id) {
+  if (document.getElementById(id).disabled) return;
+  setSwitch(id, !switchOn(id));
+  if (id === 'nightCarryIn') document.getElementById('nightCarryInHint').classList.add('hidden');   // далі це вибір користувача
+  leaveLegacyBonus(id);
+  calculateSalary(); saveLocalGuestData();
+  if (id === 'nightCarryOut' && !auth.currentUser) warnGuestNextCarryIn();
+}
+for (const id of CARRY_IDS) document.getElementById(id).addEventListener('click', () => toggleCarry(id));
 
 /* Гість зберігається одразу при редагуванні, тож підказуємо в момент, коли вмикають перехід. */
 function warnGuestNextCarryIn() {
@@ -986,54 +1086,71 @@ function warnGuestNextCarryIn() {
 
 document.addEventListener('click', e => {
   const p = e.target.closest('[data-page]'); if (p) { switchPage(Number(p.dataset.page)); return; }
-  const l = e.target.closest('button[data-lang]'); if (l) { setLang(l.dataset.lang); return; }
-  if (e.target.closest('#btn-theme')) { setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); return; }
   const st = e.target.closest('[data-step]');
   if (st) { const s = document.getElementById('monthSelect'), i = s.selectedIndex + Number(st.dataset.step);
     if (i >= 0 && i < s.options.length) { s.selectedIndex = i; s.dispatchEvent(new Event('change', { bubbles: true })); } }
 });
 
-// Замість inline onchange (потрібно для CSP без 'unsafe-inline')
-document.getElementById('langSelect').addEventListener('change', e => window.setLang(e.target.value));
-document.getElementById('themeSelect').addEventListener('change', e => window.setTheme(e.target.value));
+// «Параметри» → «Вигляд» (обробники тут, а не в розмітці: CSP без 'unsafe-inline')
+document.getElementById('langUk').addEventListener('click', () => window.setLang('uk'));
+document.getElementById('langPl').addEventListener('click', () => window.setLang('pl'));
+document.getElementById('themeSwitch').addEventListener('click', () => window.setTheme(switchOn('themeSwitch') ? 'light' : 'dark'));
 
-/* ВКЛАДКА «ПРОФІЛЬ», розділ «Профілі»: список локальних профілів, додавання, перейменування, видалення.
-   Назва вводиться в полі на сторінці, видалення — у два кроки на сторінці (без alert/confirm/prompt). */
-let profileEdit = null;          // null | { kind: 'add' } | { kind: 'rename', id }
+/* ВКЛАДКА «ПРОФІЛЬ»: рядок профілів-«пігулок» (дотик — одразу активний), «+», «i»; назва й налаштування; «Зберегти».
+   Видалення — у два кроки на сторінці (без alert/confirm/prompt). */
+let profileEdit = null;          // null | { kind: 'add' } | { kind: 'first' } (перший запуск)
 let profileDeleteId = null;      // профіль, видалення якого чекає підтвердження
 let signedInEmail = '';
 
 function renderProfiles() {
   const t = dict[currentLang];
+  const kind = profileEdit ? profileEdit.kind : null;
   document.getElementById('profilesSignedIn').classList.toggle('hidden', !signedIn);
   document.getElementById('profilesSignedIn').innerText = signedIn ? t.profilesSignedIn.replace('{email}', signedInEmail) : '';
-  document.getElementById('profilesLocal').classList.toggle('hidden', signedIn);
-  document.getElementById('profileList').replaceChildren(...profiles.list.map(profileItem));
-  document.getElementById('btn-profile-delete').classList.toggle('hidden', profiles.list.length <= 1);
-  if (profiles.list.length <= 1) profileDeleteId = null;
-  document.getElementById('profileEdit').classList.toggle('hidden', !profileEdit);
-  document.getElementById('profileNameLabel').textContent = profileEdit && profileEdit.kind === 'rename' ? t.profileRename : t.profileAdd;
+  // Поки є вхід — одна «пігулка» з email акаунта; локальні профілі неактивні.
+  document.getElementById('profileList').replaceChildren(...(signedIn
+    ? [profilePill(signedInEmail, true, null)]
+    : profiles.list.map(p => profilePill(profileLabel(p), p.id === profiles.active && kind !== 'add', p.id))));
+  document.getElementById('btn-profile-add').classList.toggle('hidden', signedIn);
+  document.getElementById('btn-profile-add').setAttribute('aria-pressed', String(kind === 'add'));
+  document.getElementById('profileNameRow').classList.toggle('hidden', signedIn);
+  document.getElementById('secProfileLabel').classList.toggle('hidden', signedIn);
+  if (signedIn) showProfileNameError(null);
+  if (profiles.list.length <= 1 || signedIn) profileDeleteId = null;
   const target = profiles.list.find(p => p.id === profileDeleteId);
+  document.getElementById('btn-profile-delete').classList.toggle('hidden', signedIn || !!kind || profiles.list.length <= 1);
+  document.getElementById('btn-profile-cancel').classList.toggle('hidden', kind !== 'add');
   document.getElementById('profileDelete').classList.toggle('hidden', !target);
   document.getElementById('profileDeleteText').innerText = target ? t.profileDeleteConfirm.replace('{name}', profileLabel(target)) : '';
-  document.getElementById('profileActions').classList.toggle('hidden', !!(profileEdit || target));
+  document.getElementById('profileFoot').classList.toggle('hidden', !!target);
+  document.getElementById('btn-save-profile').textContent = kind === 'first' ? t.firstCreate : t.profileNameSave;
+  document.getElementById('btn-save-profile').classList.toggle('wide', kind === 'first');
+  // Поле «Назва»: назва активного профілю (інший профіль або автоназва іншою мовою — оновлюємо; введене до «Зберегти» не чіпаємо)
+  const nameInput = document.getElementById('profileName'), active = activeProfile(profiles);
+  if (!signedIn && !kind && (nameInput.dataset.profileId !== profiles.active || active.autoName)) nameInput.value = profileLabel(active);
+  nameInput.dataset.profileId = kind ? '' : profiles.active;
   renderWho();
 }
 
-/* Напис у шапці: назва активного локального профілю або email акаунта. Дотик відкриває вкладку «Профіль». */
+/* Під назвою застосунку в шапці: назва активного локального профілю або email акаунта (на першому запуску — нічого). */
 function renderWho() {
   const el = document.getElementById('whoBadge');
-  const text = signedIn ? signedInEmail : profileLabel(activeProfile(profiles));
+  const text = signedIn ? signedInEmail : firstRun ? '' : profileLabel(activeProfile(profiles));
   el.textContent = text;
   el.setAttribute('title', text);
-  el.setAttribute('aria-label', `${dict[currentLang].navProfile}: ${text}`);
 }
 
-function profileItem(p) {
-  const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'pill prof-item'; btn.textContent = profileLabel(p);
-  btn.setAttribute('aria-pressed', String(p.id === profiles.active));
-  btn.addEventListener('click', () => (p.id === profiles.active ? undefined : switchProfile(p.id)));
+/* «Пігулка»: коло з першою літерою + назва. id = null — пігулка акаунта (нічого не перемикає). */
+function profilePill(name, active, id) {
+  const make = (tag, className, text) => { const el = document.createElement(tag); el.className = className; if (text !== undefined) el.textContent = text; return el; };
+  const letter = [...String(name).trim()][0];
+  const btn = make('button', 'prof-pill'), ini = make('span', 'prof-ini', letter ? letter.toLocaleUpperCase() : '?'), label = make('span', 'prof-name', name);
+  btn.type = 'button';
+  ini.setAttribute('aria-hidden', 'true');
+  btn.setAttribute('aria-pressed', String(active));
+  btn.setAttribute('title', name);
+  btn.appendChild(ini); btn.appendChild(label);
+  if (id) btn.addEventListener('click', () => (id === profiles.active ? closeProfilePanels() : switchProfile(id)));
   return btn;
 }
 
@@ -1045,22 +1162,34 @@ function showProfileNameError(error) {
   el.innerText = error === 'duplicate' ? dict[currentLang].errProfileDuplicate : error ? dict[currentLang].errProfileName : '';
 }
 
-function openProfileEdit(edit) {
-  profileEdit = edit; profileDeleteId = null;
+/* «+»: та сама форма з порожньою назвою й налаштуваннями нового профілю. */
+function openAddProfile() {
+  if (signedIn || firstRun) return;
+  profileEdit = { kind: 'add' }; profileDeleteId = null;
   const input = document.getElementById('profileName');
-  input.value = edit.kind === 'rename' ? profileLabel(activeProfile(profiles)) : '';
+  input.value = '';
+  fillProfileForm(NEW_PROFILE());
   showProfileNameError(null);
   renderProfiles();
   if (input.focus) input.focus();
 }
 
-function closeProfilePanels() { profileEdit = null; profileDeleteId = null; showProfileNameError(null); renderProfiles(); }
+/* «Скасувати» (і дотик до активної пігулки): назад до активного профілю — його назва й налаштування. */
+function closeProfilePanels() {
+  if (profileEdit && profileEdit.kind === 'first') return;
+  const wasAdding = !!(profileEdit && profileEdit.kind === 'add');
+  profileEdit = null; profileDeleteId = null; showProfileNameError(null);
+  if (wasAdding) { document.getElementById('profileName').dataset.profileId = ''; fillProfileForm(userProfile); }
+  renderProfiles();
+}
 
 /* Інший активний профіль (або видалено активний): одразу перезавантажуємо місяць, налаштування профілю, «Деталі», статистику. */
-async function applyProfiles(state) {
-  const changed = state.active !== profiles.active;
+async function applyProfiles(state, { force = false } = {}) {
+  const changed = force || state.active !== profiles.active;
+  const wasAdding = !!(profileEdit && profileEdit.kind === 'add');
   profiles = state; profileEdit = null; profileDeleteId = null;
   renderProfiles();
+  if (wasAdding && !changed && !signedIn) fillProfileForm(userProfile);
   if (!changed || signedIn) return;
   carryInWarned.clear();
   window.cachedL4DailyRate = null; ytdState = { monthVal: '', prev: 0, found: 0, expected: 0 };
@@ -1076,19 +1205,41 @@ async function switchProfile(id) {
   if (r.ok) await applyProfiles(r.state);
 }
 
-async function saveProfileName() {
-  if (!profileEdit || signedIn) return;
-  const text = document.getElementById('profileName').value;
-  const r = profileEdit.kind === 'rename'
-    ? renameProfile(localStorage, profileEdit.id, text)
-    : createProfile(localStorage, text);
+/* «+» → «Зберегти»: новий профіль з налаштуваннями з форми, одразу активний. */
+async function createAnotherProfile(nameText, settings) {
+  const r = createProfile(localStorage, nameText);
   if (!r.ok) return showProfileNameError(r.error);
-  showProfileNameError(null);
-  if (profileEdit.kind === 'add') {                     // новий профіль одразу стає активним: його й заповнюватимуть
-    const active = setActiveProfile(localStorage, r.id);
-    return applyProfiles(active.state);
+  profileStorage(localStorage, r.id).setItem(GUEST_PROFILE_KEY, JSON.stringify(settings));
+  await applyProfiles(setActiveProfile(localStorage, r.id).state);
+  showToast(dict[currentLang].toastProfOk);
+}
+
+/* Перший запуск → «Створити профіль»: profiles_v1 з профілем 'default' під введеною назвою + його налаштування;
+   далі звичайний застосунок на вкладці «Розрахунок». */
+async function createFirstProfile(nameText, settings) {
+  ensureProfiles(localStorage);
+  const r = renameProfile(localStorage, DEFAULT_ID, nameText);
+  if (!r.ok) return showProfileNameError(r.error);
+  profileStorage(localStorage, DEFAULT_ID).setItem(GUEST_PROFILE_KEY, JSON.stringify(settings));
+  setFirstRun(false);
+  await applyProfiles(r.state, { force: true });
+}
+
+/* Екран першого запуску: вкладка «Профіль» без нижнього меню, з привітанням і кнопкою «Створити профіль». */
+function setFirstRun(on) {
+  const was = firstRun;
+  firstRun = on;
+  document.getElementById('app-body').classList.toggle('first-run', on);
+  if (on) {
+    profiles = MEMORY_PROFILES();
+    profileEdit = { kind: 'first' }; profileDeleteId = null;
+    document.getElementById('profileName').value = '';
+    showProfileNameError(null);
+    switchPage(4);
+  } else if (was) {
+    if (profileEdit && profileEdit.kind === 'first') profileEdit = null;
+    switchPage(1);
   }
-  return applyProfiles(r.state);
 }
 
 async function confirmDeleteProfile() {
@@ -1098,17 +1249,102 @@ async function confirmDeleteProfile() {
   if (r.ok) await applyProfiles(r.state); else renderProfiles();
 }
 
-document.getElementById('btn-profile-add').addEventListener('click', () => openProfileEdit({ kind: 'add' }));
-document.getElementById('btn-profile-rename').addEventListener('click', () => openProfileEdit({ kind: 'rename', id: profiles.active }));
+document.getElementById('btn-profile-add').addEventListener('click', openAddProfile);
+document.getElementById('btn-profile-cancel').addEventListener('click', closeProfilePanels);
 document.getElementById('btn-profile-delete').addEventListener('click', () => {
-  if (profiles.list.length <= 1) return;
+  if (profiles.list.length <= 1 || signedIn) return;
   profileEdit = null; profileDeleteId = profiles.active; renderProfiles();
 });
-document.getElementById('btn-profile-name-save').addEventListener('click', saveProfileName);
-document.getElementById('btn-profile-name-cancel').addEventListener('click', closeProfilePanels);
 document.getElementById('btn-profile-delete-yes').addEventListener('click', confirmDeleteProfile);
 document.getElementById('btn-profile-delete-no').addEventListener('click', closeProfilePanels);
 document.getElementById('profileName').addEventListener('input', () => showProfileNameError(null));
+/* «i» біля рядка профілів: пояснення згорнуте, дотик розгортає / згортає. */
+function showProfilesInfo(open) {
+  document.getElementById('btn-profiles-info').setAttribute('aria-expanded', String(open));
+  document.getElementById('profilesInfo').classList.toggle('hidden', !open);
+}
+showProfilesInfo(false);
+document.getElementById('btn-profiles-info').addEventListener('click', () => showProfilesInfo(document.getElementById('btn-profiles-info').getAttribute('aria-expanded') !== 'true'));
+
+/* ПАНЕЛЬ ХМАРИ (знизу; відкривається кнопкою хмари в шапці). role="dialog", aria-modal; фокус — у панель і назад на кнопку.
+   Закривається хрестиком, дотиком до затемнення, Esc і кнопкою «Назад» (Android: MainActivity викликає salaryBack();
+   у браузері — запис в історії й popstate). */
+let sheetOpen = false;
+const sheetEl = () => document.getElementById('cloudSheet');
+const focusEl = el => { if (el && el.focus) el.focus(); };
+function openCloudSheet() {
+  if (sheetOpen) return;
+  sheetOpen = true;
+  sheetEl().classList.remove('hidden');
+  document.getElementById('cloudBackdrop').classList.remove('hidden');
+  document.getElementById('app-body').classList.add('sheet-open');
+  document.getElementById('btn-cloud').setAttribute('aria-expanded', 'true');
+  for (const id of ['appHeader', 'appMain']) document.getElementById(id).inert = true;
+  renderCloud();
+  if (globalThis.history && history.pushState) { try { history.pushState({ cloudSheet: true }, ''); } catch (e) { /* без історії: хрестик і затемнення */ } }
+  focusEl(document.getElementById('btn-cloud-close'));
+}
+function closeCloudSheet({ fromHistory = false } = {}) {
+  if (!sheetOpen) return false;
+  sheetOpen = false;
+  sheetEl().classList.add('hidden');
+  document.getElementById('cloudBackdrop').classList.add('hidden');
+  document.getElementById('app-body').classList.remove('sheet-open');
+  document.getElementById('btn-cloud').setAttribute('aria-expanded', 'false');
+  for (const id of ['appHeader', 'appMain']) document.getElementById(id).inert = false;
+  if (!fromHistory && globalThis.history && history.state && history.state.cloudSheet) { try { history.back(); } catch (e) { /* немає історії */ } }
+  focusEl(document.getElementById('btn-cloud'));
+  return true;
+}
+document.getElementById('btn-cloud').addEventListener('click', openCloudSheet);
+document.getElementById('btn-cloud-close').addEventListener('click', () => closeCloudSheet());
+document.getElementById('cloudBackdrop').addEventListener('click', () => closeCloudSheet());
+window.addEventListener('popstate', () => closeCloudSheet({ fromHistory: true }));
+window.salaryBack = () => closeCloudSheet();               // true — «Назад» закрив панель; false — звичайна дія Android
+document.addEventListener('keydown', e => {
+  if (!sheetOpen) return;
+  if (e.key === 'Escape') { closeCloudSheet(); return; }
+  if (e.key !== 'Tab') return;                             // фокус не виходить за межі панелі
+  const items = [...sheetEl().querySelectorAll('button, input')].filter(el => !el.closest('.hidden') && !el.disabled);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+/* Стан хмари для іконки й панелі: немає входу — 'out'; вхід є і синхронізовано — 'ok'; немає мережі чи помилка — 'off'. */
+let syncState = null;            // null (немає входу) | 'pending' | 'ok' | 'error'
+let lastSyncAt = 0;
+function markSync(ok) {
+  if (!signedIn) return;
+  syncState = ok ? 'ok' : 'error';
+  if (ok) lastSyncAt = Date.now();
+  renderCloud();
+}
+const cloudIconState = () => (!signedIn ? 'out' : navigator.onLine === false || syncState === 'error' ? 'off' : 'ok');
+function renderCloud() {
+  const t = dict[currentLang], state = cloudIconState();
+  document.getElementById('btn-cloud').setAttribute('data-state', state);
+  const el = document.getElementById('cloudSyncState');
+  const locale = currentLang === 'pl' ? 'pl-PL' : 'uk-UA';
+  let text = '';
+  if (state === 'off') text = t.cloudNoConn;
+  else if (state === 'ok' && syncState === 'ok' && lastSyncAt) {
+    const at = new Date(lastSyncAt), today = new Date().toDateString() === at.toDateString();
+    const time = at.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    text = t.cloudSynced.replace('{time}', today ? time : `${at.toLocaleDateString(locale)} ${time}`);
+  } else if (state === 'ok') text = t.cloudPending;
+  el.textContent = text;
+  el.classList.toggle('ok', state === 'ok' && syncState === 'ok');
+}
+window.addEventListener('offline', () => renderCloud());
+window.addEventListener('online', () => { renderCloud(); if (signedIn && syncState === 'error') probeCloud(); });
+/* Мережа повернулась після помилки: перевіряємо, що хмара відповідає (поля місяця не перезавантажуємо). */
+async function probeCloud() {
+  if (!auth.currentUser || !cloudAvailable) return;
+  try { await withTimeout(getDocs(collection(db, "users", auth.currentUser.uid, "months")), SAVE_TIMEOUT_MS()); markSync(true); }
+  catch (e) { markSync(false); }
+}
 
 /* ВКЛАДКА «СТАТИСТИКА»: підсумки за період (цифри рахують ті самі calc.js + pit.js, що й калькулятор).
    Період: останні 3/6/12 місяців або вибрані роки. Майбутніх місяців немає: максимум — поточний.
@@ -1224,6 +1460,7 @@ setUserMinWages(readUserMinWages(localStorage));        // до першого �
 setTheme(localStorage.getItem('theme') || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 window.setLang(currentLang);
 switchPage(1);
+if (firstRun) setFirstRun(true);
 handleAuthState(null).finally(() => { guestReady = true; initCloud(); });
 
 /* --- СВАЙП-НАВІГАЦІЯ МІЖ ВІКНАМИ --- */
@@ -1232,13 +1469,13 @@ const swipeThreshold = 50; // Мінімальна довжина свайпу �
 
 document.addEventListener('touchstart', e => {
   // Ігноруємо свайпи на полях вводу, селекторах та нижній панелі вкладок
-  if (e.target.closest('input, select, button, .tabs, .ctl, .seg, .chart-host')) return;
+  if (sheetOpen || firstRun || e.target.closest('input, select, button, .tabs, .ctl, .prof-strip, .segmented, .sheet, .seg, .chart-host')) return;
   touchStartX = e.changedTouches[0].screenX;
   touchStartY = e.changedTouches[0].screenY;
 }, { passive: true });
 
 document.addEventListener('touchend', e => {
-  if (e.target.closest('input, select, button, .tabs, .ctl, .seg, .chart-host')) return;
+  if (sheetOpen || firstRun || e.target.closest('input, select, button, .tabs, .ctl, .prof-strip, .segmented, .sheet, .seg, .chart-host')) return;
   const touchEndX = e.changedTouches[0].screenX;
   const touchEndY = e.changedTouches[0].screenY;
   const dx = touchEndX - touchStartX;

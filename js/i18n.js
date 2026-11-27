@@ -171,3 +171,36 @@ Object.assign(dict.pl, {
   dedTotal: "Razem potrąceń", dedCheck: "Brutto − potrącenia + pranie = Netto",
   dedRoundNote: "Suma pozycji może różnić się o 0,01–0,02 zł z powodu zaokrągleń"
 });
+
+/* 1.20.0: новий вигляд — шапка з кнопкою хмари, панель хмари, «Вигляд» у «Параметрах», вкладка «Профіль», перший запуск. */
+Object.assign(dict.uk, {
+  ariaCloud: "Зберігання в хмарі", ariaClose: "Закрити", secAppearance: "Вигляд", darkTheme: "Темна тема",
+  cloudOutTitle: "Зберігати в хмарі", cloudOutText: "Увійдіть, щоб зберігати дані в хмарі й бачити їх на інших пристроях і на сайті.",
+  ariaAuthMode: "Вхід або реєстрація", authModeLogin: "Вхід", authModeRegister: "Реєстрація", btnCreateAccount: "Створити акаунт",
+  ariaShowPwd: "Показати пароль", ariaHidePwd: "Сховати пароль",
+  cloudInTitle: "Хмару підключено", cloudAccount: "Акаунт", cloudState: "Стан", cloudSynced: "Синхронізовано {time}",
+  cloudNoConn: "Немає з'єднання", cloudPending: "Синхронізація…", btnLogoutAccount: "Вийти з акаунта",
+  cloudLogoutNote: "Після виходу дані лишаться на телефоні.", btnLoadCloud: "Завантажити з хмари",
+  ariaProfilesInfo: "Про профілі",
+  profilesInfo: "Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються на цьому телефоні. Щоб зберегти їх у хмарі, натисніть хмаринку вгорі.",
+  secProfile: "Профіль", secSettings: "Налаштування", profileNameLabel: "Назва", profileNamePhNew: "Напр., Володимир",
+  tileRate: "Ставка, zł", tileDeduction: "Відрахування, zł/міс.", tileDeductionHint: "Напр., страхування", tileUnder26: "До 26 років", tilePpk: "PPK",
+  profileDeleteBtn: "Видалити профіль", firstTitle: "Вітаємо!", firstTextA: "Дані зберігаються на телефоні. Хмара —", firstTextB: "угорі.",
+  firstCreate: "Створити профіль"
+});
+
+Object.assign(dict.pl, {
+  ariaCloud: "Przechowywanie w chmurze", ariaClose: "Zamknij", secAppearance: "Wygląd", darkTheme: "Ciemny motyw",
+  cloudOutTitle: "Zapisuj w chmurze", cloudOutText: "Zaloguj się, aby zapisywać dane w chmurze i widzieć je na innych urządzeniach i na stronie.",
+  ariaAuthMode: "Logowanie lub rejestracja", authModeLogin: "Logowanie", authModeRegister: "Rejestracja", btnCreateAccount: "Utwórz konto",
+  ariaShowPwd: "Pokaż hasło", ariaHidePwd: "Ukryj hasło",
+  cloudInTitle: "Chmura połączona", cloudAccount: "Konto", cloudState: "Stan", cloudSynced: "Zsynchronizowano {time}",
+  cloudNoConn: "Brak połączenia", cloudPending: "Synchronizacja…", btnLogoutAccount: "Wyloguj się z konta",
+  cloudLogoutNote: "Po wylogowaniu dane zostaną na telefonie.", btnLoadCloud: "Pobierz z chmury",
+  ariaProfilesInfo: "O profilach",
+  profilesInfo: "Każdy profil ma własne miesiące, ustawienia i statystyki. Dane są zapisywane na tym telefonie. Aby zapisać je w chmurze, dotknij chmurki u góry.",
+  secProfile: "Profil", secSettings: "Ustawienia", profileNameLabel: "Nazwa", profileNamePhNew: "Np. Anna",
+  tileRate: "Stawka, zł", tileDeduction: "Potrącenie, zł/mies.", tileDeductionHint: "Np. ubezpieczenie", tileUnder26: "Do 26 lat", tilePpk: "PPK",
+  profileDeleteBtn: "Usuń profil", firstTitle: "Witamy!", firstTextA: "Dane są zapisywane na telefonie. Chmura —", firstTextB: "u góry.",
+  firstCreate: "Utwórz profil"
+});

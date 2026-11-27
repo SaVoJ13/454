@@ -17,6 +17,12 @@ assert.ok(/<input type="password" id="password" name="password" autocomplete="cu
 assert.ok(/<button type="submit" id="btn-login"/.test(form) && /<button type="button" id="btn-register"/.test(form));
 assert.equal((form.match(/type="submit"/g) || []).length, 1, 'відправляє форму лише «Увійти»');
 assert.ok(form.indexOf('id="email"') < form.indexOf('id="knownEmails"') && form.indexOf('id="knownEmails"') < form.indexOf('id="password"'), 'чипи — під полем email');
+// з 1.20.0 форма — у панелі хмари (не на вкладці «Профіль»); перемикач «Вхід | Реєстрація» над нею; «око» в полі пароля
+const sheet = html.slice(html.indexOf('id="cloudSheet"'), html.indexOf('</section>', html.indexOf('id="cloudSheet"')));
+const profileView = html.slice(html.indexOf('id="viewProfile"'), html.indexOf('id="viewSettings"'));
+assert.ok(sheet.includes('<form id="loginForm"') && !profileView.includes('loginForm'), 'форма входу — у панелі хмари');
+assert.ok(sheet.indexOf('id="authModeLogin"') < sheet.indexOf('<form') && sheet.includes('id="authModeRegister"'), 'перемикач «Вхід | Реєстрація»');
+assert.ok(/<button type="button" class="eye-btn" id="btn-pwd-eye"/.test(form), '«око» — у полі пароля, type="button"');
 
 // 2. Чистий модуль
 const mem = new Map(), storage = { getItem: k => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
@@ -107,6 +113,28 @@ fail = 'auth/email-already-in-use'; await fill('taken@x.pl', SECRET); await fire
 assert.equal(password.getAttribute('autocomplete'), 'current-password', 'повертається і після помилки');
 assert.ok(!known().includes('taken@x.pl'));
 
+// перемикач «Реєстрація»: основна кнопка «Створити акаунт», відправлення форми (Enter) — реєстрація
+const hiddenEl = id => getEl(id).classList.contains('hidden');
+assert.deepEqual([hiddenEl('btn-login'), hiddenEl('btn-register'), hiddenEl('btn-reset-password')], [false, true, false], 'режим «Вхід»');
+await fire(getEl('authModeRegister'), 'click');
+assert.deepEqual([hiddenEl('btn-login'), hiddenEl('btn-register'), hiddenEl('btn-reset-password')], [true, false, true], 'режим «Реєстрація»');
+assert.equal(getEl('authModeRegister').attrs['aria-pressed'], 'true'); assert.equal(getEl('authModeLogin').attrs['aria-pressed'], 'false');
+await fill('enter@x.pl', SECRET); await submit();
+assert.deepEqual([calls.at(-1).kind, calls.at(-1).email, calls.at(-1).autocomplete], ['up', 'enter@x.pl', 'new-password'], 'Enter у режимі реєстрації створює акаунт');
+await logout();
+assert.equal(hiddenEl('btn-login'), false, 'після виходу — знову «Вхід»'); assert.equal(getEl('authModeLogin').attrs['aria-pressed'], 'true');
+assert.deepEqual(known().slice(0, 1), ['enter@x.pl']); forgetEmail(localStorage, 'enter@x.pl');
+
+// «око»: показати / сховати пароль; підпис двома мовами; після виходу пароль знову схований
+const eye = getEl('btn-pwd-eye');
+await fire(eye, 'click');
+assert.equal(password.type, 'text'); assert.equal(eye.attrs['aria-pressed'], 'true'); assert.equal(eye.attrs['aria-label'], 'Сховати пароль');
+window.setLang('pl'); assert.equal(eye.attrs['aria-label'], 'Ukryj hasło'); window.setLang('uk');
+await fire(eye, 'click');
+assert.equal(password.type, 'password'); assert.equal(eye.attrs['aria-label'], 'Показати пароль');
+await fire(eye, 'click'); await fill('eye@x.pl', SECRET); await submit(); await logout();
+assert.equal(password.type, 'password', 'після виходу пароль схований'); forgetEmail(localStorage, 'eye@x.pl');
+
 // понад 5 — найстаріший випадає
 for (const n of [1, 2, 3]) { await fill(`n${n}@x.pl`, SECRET); await submit(); await logout(); }
 assert.deepEqual(known(), ['n3@x.pl', 'n2@x.pl', 'n1@x.pl', 'reg@x.pl', 'old@x.pl']);
@@ -140,5 +168,5 @@ await fill('last@x.pl', SECRET); await submit();
 assert.ok(store.size > 0);
 for (const [key, value] of store) assert.ok(!key.includes(SECRET) && !value.includes(SECRET), `пароль у localStorage: ${key}`);
 
-console.log('OK: вхід (форма без відправлення, запам\'ятовані email-и до 5, «×», пароль не зберігається)');
+console.log('OK: вхід (форма в панелі хмари без відправлення, «Вхід | Реєстрація», «око», запам\'ятовані email-и до 5, «×», пароль не зберігається)');
 process.exit(0);

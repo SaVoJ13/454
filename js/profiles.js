@@ -64,6 +64,25 @@ export function ensureProfiles(storage, now = new Date()) {
   return write(storage, { active: DEFAULT_ID, list: [{ id: DEFAULT_ID, name: '', createdAt: now.toISOString(), autoName: true }] });
 }
 
+/* На пристрої вже є локальний профіль або дані гостя (profiles_v1, guest_month_*, user_profile_guest). */
+export function hasLocalProfileData(storage) {
+  if (storage.getItem(PROFILES_KEY) !== null || storage.getItem('user_profile_guest') !== null) return true;
+  for (let i = 0; i < storage.length; i++) { const k = storage.key(i); if (typeof k === 'string' && k.startsWith('guest_month_')) return true; }
+  return false;
+}
+
+/* Сліди акаунта, що лишаються на пристрої, поки є вхід (копії місяців і профілю акаунта). */
+function hasAccountTraces(storage) {
+  for (let i = 0; i < storage.length; i++) {
+    const k = storage.key(i);
+    if (typeof k === 'string' && (k.startsWith('cloud_month_') || (k.startsWith('user_profile_') && k !== 'user_profile_guest'))) return true;
+  }
+  return false;
+}
+
+/* Перший запуск (екран «Вітаємо!»): немає ні локальних даних, ні слідів входу в акаунт. Сховище не змінюється. */
+export const isFirstRun = storage => !hasLocalProfileData(storage) && !hasAccountTraces(storage);
+
 export const activeProfile = state => state.list.find(p => p.id === state.active) || state.list[0];
 
 /* Назва: обрізаємо пробіли по краях; 1–30 символів; унікальна без урахування регістру (крім профілю exceptId).
