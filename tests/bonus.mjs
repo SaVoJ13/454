@@ -137,7 +137,9 @@ const type = async (id, value) => { getEl(id).value = value; await fire(body, 'i
 const choose = async value => { await type('bonusTotalPctSelect', value); await fire(body, 'change', getEl('bonusTotalPctSelect')); };
 const hintShown = () => !getEl('bonusConvertedHint').classList.contains('hidden');
 const row = () => [getEl('infoBonusPct').innerText, getEl('infoBonusL4').innerText];
-const guestRes = (data, id) => compute(inputsFromSaved(data, id, profile, { premium: false }));
+// локальний профіль (1.19.0): усі функції, як в акаунта; ставку L4 із середнього за 12 місяців береться з застосунку
+// (її збіг зі шляхом акаунта перевіряє tests/profiles.mjs), тут перевіряється премія
+const guestRes = (data, id) => compute({ ...inputsFromSaved(data, id, profile), l4DailyRateCached: globalThis.cachedL4DailyRate });
 const shown = (data, id, msg) => {
   assert.equal(getEl('netResult').innerText, formatPLN(guestRes(data, id).net), `${msg}: netto`);
   assert.equal(getEl('infoBonusSum').innerText, formatPLN(guestRes(data, id).bonusAmount), `${msg}: сума премії`);

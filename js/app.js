@@ -9,6 +9,7 @@ import { saveMonthCache, loadMonthCache, clearMonthCache, listMonthCache } from 
 import { pitBaseOf, pitExtra, yearToDate } from './pit.js';
 import { collectPeriodStats, readGuestRecords, availableYears, normalizePeriod } from './stats.js';
 import { drawIncomeChart, drawMixChart, drawMixLegend } from './charts.js';
+import { ensureProfiles, activeProfile, profileStorage, createProfile, renameProfile, deleteProfile, setActiveProfile } from './profiles.js';
 
 /* Лише для тестів: tests/cloud.mjs підставляє фейковий Firebase і короткий таймаут. У браузері не задано. */
 const TEST = globalThis.__salaryTest || {};
@@ -41,7 +42,7 @@ function initCloud() {
       cloudAvailable = true;
       m.onAuthStateChanged(m.auth, user => {
         // Перший виклик з null після гостьового старту нічого не змінює — пропускаємо
-        if (!user && guestReady && !isPremium) return;
+        if (!user && guestReady && !signedIn) return;
         return handleAuthState(user);
       });
       return true;
@@ -52,7 +53,7 @@ function initCloud() {
 
 window.addEventListener('online', () => { initCloud(); });
 
-const NON_MONTH_IDS = new Set(['langSelect', 'themeSelect', 'email', 'password', 'profBaseSalary', 'profUnder26', 'profPpk', 'profExtraDeduction']);
+const NON_MONTH_IDS = new Set(['langSelect', 'themeSelect', 'email', 'password', 'profBaseSalary', 'profUnder26', 'profPpk', 'profExtraDeduction', 'profileName']);
 const MIN_WAGE_ID = 'minWage';       // поля «Параметрів» minWage2028… створюються за потреби
 const isMonthField = el => !NON_MONTH_IDS.has(el.id) && !el.id.startsWith(MIN_WAGE_ID);
 
@@ -70,12 +71,23 @@ function authMsg(e) {
 }
 
 let currentLang = localStorage.getItem('lang') || (navigator.language && navigator.language.toLowerCase().startsWith('pl') ? 'pl' : 'uk');
-let isPremium = false;
+/* signedIn — є вхід в акаунт: хмарні кнопки, auth-container, sync-container, [data-cloud-only].
+   fullFeatures — усі функції (відпустка, L4, донорство, поважна відсутність, поріг PIT, статистика з порогом):
+   тепер і для локального профілю, і для акаунта. Саме його отримує compute() як isPremium. */
+let signedIn = false;
+let fullFeatures = true;
 let currentActivePage = 1;
 let requestCounter = 0;
 let monthsCollectionCache = null;
 let userProfile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' };
 window.cachedL4DailyRate = null;
+
+/* ЛОКАЛЬНІ ПРОФІЛІ (js/profiles.js). Дані гостя — у сховищі активного профілю; поки є вхід в акаунт, профілі не діють. */
+const defaultProfileName = () => dict[currentLang].profileDefaultName;
+let profiles = ensureProfiles(localStorage, defaultProfileName());
+const guestStore = () => profileStorage(localStorage, profiles.active);
+const GUEST_PROFILE_KEY = 'user_profile_guest';
+const guestMonthKey = monthVal => `guest_month_${monthVal}`;
 
 /* ПРОФІЛЬ ТА МЕНЮ ПРИВ'ЯЗКА ДО АКАУНТУ */
 
@@ -98,7 +110,7 @@ async function loadProfile() {
       if (savedLocal) try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
     }
   } else {
-    const savedLocal = localStorage.getItem(localKey);
+    const savedLocal = guestStore().getItem(GUEST_PROFILE_KEY);           // налаштування активного локального профілю
     if (savedLocal) try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
   }
   document.getElementById('profBaseSalary').value = userProfile.baseSalary;
@@ -146,14 +158,14 @@ document.getElementById('btn-save-profile').addEventListener('click', async () =
   userProfile.insurance = userProfile.extraDeduction > 0 ? 'yes' : 'no';     // це поле читає веб-версія
   showProfileDeduction();
   const uid = auth.currentUser ? auth.currentUser.uid : 'guest';
-  const localKey = `user_profile_${uid}`;
-  localStorage.setItem(localKey, JSON.stringify(userProfile));
+  if (auth.currentUser) localStorage.setItem(`user_profile_${uid}`, JSON.stringify(userProfile));
+  else guestStore().setItem(GUEST_PROFILE_KEY, JSON.stringify(userProfile));
   let profileCloudFailed = false;
   if (auth.currentUser) {
     try { await setDoc(doc(db, "users", uid, "profile", "userProfile"), userProfile, { merge: true }); } catch(e) { profileCloudFailed = true; }
   }
   const monthVal = document.getElementById('monthSelect').value;
-  if (!localStorage.getItem(`guest_month_${monthVal}`) && (!auth.currentUser || !monthsCollectionCache?.some(d => d.id === monthVal))) {
+  if (!(auth.currentUser ? localStorage : guestStore()).getItem(guestMonthKey(monthVal)) && (!auth.currentUser || !monthsCollectionCache?.some(d => d.id === monthVal))) {
     applyProfileToMain();
   }
   await updateYtdCache(monthVal);        // вік до 26 років змінює, чи діє поріг
@@ -175,7 +187,8 @@ window.setLang = function(lang) {
   document.title = t.appTitle;
   document.getElementById('langSelect').value = lang;
   showDeductionError(deductionError);
-  renderKnownEmails(); initMonths(); renderMinWageSettings(); calculateSalary(); refreshPeriod(); paintStats();
+  showProfileNameError(profileNameError);
+  renderKnownEmails(); renderProfiles(); initMonths(); renderMinWageSettings(); calculateSalary(); refreshPeriod(); paintStats();
 };
 
 /* «ПАРАМЕТРИ»: мінімалка вручну для років календаря без офіційної суми й для всіх років зі збереженою сумою. */
@@ -380,6 +393,20 @@ function syncSchedule() {
   }
 }
 
+/* ДЖЕРЕЛО ЗАПИСІВ МІСЯЦІВ ({ 'YYYY-MM': дані }) для порога PIT, ставки L4, «Сер. за 1 дн.», статистики, переходу нічної зміни.
+   Локальний профіль — його збережені місяці (readGuestRecords на сховищі активного профілю).
+   Акаунт — хмара; cached: місяці, яких бракує в хмарі (масив id або 'all' — усі локальні копії), доповнюються копіями. */
+const localRecords = () => readGuestRecords(guestStore());
+async function sourceRecords({ cached = [] } = {}) {
+  if (!auth.currentUser) return localRecords();
+  const uid = auth.currentUser.uid, records = {};
+  (await getCachedMonths()).forEach(d => { records[d.id] = d.data; });
+  for (const id of cached === 'all' ? listMonthCache(localStorage, uid) : cached) {     // хмара недоступна/неповна — доповнюємо локальними копіями
+    if (!records[id]) { const c = loadMonthCache(localStorage, uid, id); if (c) records[id] = c.data; }
+  }
+  return records;
+}
+
 async function getCachedMonths() {
   if (monthsCollectionCache) return monthsCollectionCache;
   if (!auth.currentUser) return [];
@@ -392,21 +419,29 @@ async function getCachedMonths() {
 
 async function handleAuthState(user) {
   requestCounter++; monthsCollectionCache = null;
-  isPremium = !!user;
-  document.getElementById('app-body').classList.toggle('is-logged-in', isPremium);
-  document.getElementById('auth-container').classList.toggle('hidden', isPremium);
-  document.getElementById('sync-container').classList.toggle('hidden', !isPremium);
-  document.querySelectorAll('[data-cloud-only]').forEach(el => el.classList.toggle('hidden', !isPremium));
+  signedIn = !!user; signedInEmail = user ? user.email : '';
+  fullFeatures = true;                 // і локальний профіль, і акаунт
+  document.getElementById('app-body').classList.toggle('is-logged-in', signedIn);
+  document.getElementById('app-body').classList.toggle('full-features', fullFeatures);
+  document.getElementById('auth-container').classList.toggle('hidden', signedIn);
+  document.getElementById('sync-container').classList.toggle('hidden', !signedIn);
+  document.querySelectorAll('[data-cloud-only]').forEach(el => el.classList.toggle('hidden', !signedIn));
   if (!user) showLoginScreen();
+  renderProfiles();
   await loadProfile();
   if (user) {
     document.getElementById('user-email-display').innerText = "👤 " + user.email;
     await loadCloudData();
   } else {
-    loadLocalGuestData();
+    await loadLocalData();
   }
   calculateSalary();
-  statsLast = null; statsPeriod = DEFAULT_PERIOD(); statsPick = null;  // інше джерело даних — вибір періоду починаємо заново
+  resetStatsView();
+}
+
+/* Інше джерело даних (вхід, вихід, інший профіль) — вибір періоду статистики починаємо заново. */
+function resetStatsView() {
+  statsLast = null; statsPeriod = DEFAULT_PERIOD(); statsPick = null;
   if (currentActivePage === 3) renderStats({ reset: true }).catch(e => console.warn('Статистика:', e));
 }
 
@@ -535,7 +570,8 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
   const uid = auth.currentUser.uid;
   try { await signOut(auth); } catch (e) { return; }
   // Локальна копія профілю акаунта (ставка, PPK, вік) не має лишатись на спільному пристрої.
-  // Гостьові дані (guest_month_*, user_profile_guest) — окремий режим, їх не чіпаємо.
+  // Дані локальних профілів (guest_month_*, user_profile_guest, prof_<id>__…) — окремий режим, їх не чіпаємо;
+  // після виходу знову діє активний локальний профіль (handleAuthState(null)).
   localStorage.removeItem(`user_profile_${uid}`);
   clearMonthCache(localStorage, uid);
   window.cachedL4DailyRate = null; monthsCollectionCache = null;
@@ -598,23 +634,38 @@ function saveLocalGuestData() {
   if (auth.currentUser) return;
   const monthVal = document.getElementById('monthSelect').value;
   if (!monthVal) return;
-  const key = `guest_month_${monthVal}`;
+  const store = guestStore(), key = guestMonthKey(monthVal);
   let prev = null;
-  try { prev = JSON.parse(localStorage.getItem(key)); } catch (e) { /* пошкоджений запис — замінюється */ }
-  localStorage.setItem(key, JSON.stringify({ ...keptLegacyBonusFields(prev), ...collectMonthData() }));
+  try { prev = JSON.parse(store.getItem(key)); } catch (e) { /* пошкоджений запис — замінюється */ }
+  store.setItem(key, JSON.stringify({ ...keptLegacyBonusFields(prev), ...collectMonthData() }));
 }
 
 function loadLocalGuestData() {
   const monthVal = document.getElementById('monthSelect').value;
   if (!monthVal) return;
-  const saved = localStorage.getItem(`guest_month_${monthVal}`);
+  const saved = guestStore().getItem(guestMonthKey(monthVal));
   if (saved) {
     try { fillFrom(JSON.parse(saved)); } catch(e) { clearInputs(); applyProfileToMain(); }
   } else {
     clearInputs(); applyProfileToMain();
-    autoNightCarryIn(readGuestRecords(localStorage)[shiftMonthId(monthVal, 1)]);
+    autoNightCarryIn(localRecords()[shiftMonthId(monthVal, 1)]);
   }
   updateVisibility();
+}
+
+/* Місяць локального профілю разом із тим, що для акаунта робить loadCloudData: «Сер. за 1 дн.», ставка L4, поріг PIT. */
+async function loadLocalData() {
+  const monthVal = document.getElementById('monthSelect').value;
+  if (!monthVal || auth.currentUser) return;
+  const currentReq = ++requestCounter;
+  loadLocalGuestData();
+  await autoFillUrlopBonus(monthVal);
+  if (currentReq !== requestCounter) return;
+  await updateL4Cache(monthVal);
+  if (currentReq !== requestCounter) return;
+  await updateYtdCache(monthVal);
+  if (currentReq !== requestCounter) return;
+  calculateSalary();
 }
 
 function clearInputs() {
@@ -645,47 +696,35 @@ function initMonths() {
 /* ВІДПУСКНІ: підготовка даних з хмари (сам алгоритм — у calc.js) */
 
 async function getAutoDailyUrlopBonus(currentMonthVal) {
-  if (!auth.currentUser) return 0;
   const year = parseInt(currentMonthVal.split('-')[0]);
   const cur = {
     baseSalary: Math.max(0, parseFloat(document.getElementById('baseSalary').value) || Number(userProfile.baseSalary)),
     minWage: getMinWage(year)
   };
   try {
-    const docs = await getCachedMonths();
-    const records = {};
-    docs.forEach(d => { records[d.id] = d.data; });
-    return computeDailyUrlopBonus(records, currentMonthVal, cur);
+    return computeDailyUrlopBonus(await sourceRecords(), currentMonthVal, cur);
   } catch (e) { return 0; }
 }
 
 async function autoFillUrlopBonus(monthVal) {
   const vacDays = Math.max(0, parseInt(document.getElementById('vacationDays').value) || 0);
   const urlopInput = document.getElementById('urlopBonus');
-  if (isPremium && vacDays > 0 && (!urlopInput.value || parseFloat(urlopInput.value) === 0)) {
+  if (fullFeatures && vacDays > 0 && (!urlopInput.value || parseFloat(urlopInput.value) === 0)) {
     const autoDaily = await getAutoDailyUrlopBonus(monthVal);
     if (autoDaily > 0) urlopInput.value = autoDaily.toFixed(2);
   }
 }
 
-/* Накопичена з початку року база PIT (для порога 120 000): місяці року ПЕРЕД поточним з хмари,
-   а без мережі — з локальної копії. Для гостя порога немає (немає збережених місяців). */
+/* Накопичена з початку року база PIT (для порога 120 000): місяці року ПЕРЕД поточним.
+   Акаунт — з хмари, а без мережі з локальної копії; локальний профіль — його збережені місяці. */
 let ytdState = { monthVal: '', prev: 0, found: 0, expected: 0 };
 async function updateYtdCache(monthVal) {
-  if (!auth.currentUser) { ytdState = { monthVal, prev: 0, found: 0, expected: 0 }; return; }
-  const uid = auth.currentUser.uid;
-  const records = {};
-  (await getCachedMonths()).forEach(d => { records[d.id] = d.data; });
   const [y, m] = monthVal.split('-');
-  for (let j = 1; j < parseInt(m); j++) {
-    const id = `${y}-${String(j).padStart(2, '0')}`;
-    if (!records[id]) { const c = loadMonthCache(localStorage, uid, id); if (c) records[id] = c.data; }
-  }
-  ytdState = yearToDate(records, monthVal, userProfile);
+  const yearIds = Array.from({ length: parseInt(m) - 1 }, (_, j) => `${y}-${String(j + 1).padStart(2, '0')}`);
+  ytdState = yearToDate(await sourceRecords({ cached: yearIds }), monthVal, userProfile);
 }
 
 async function updateL4Cache(currentMonthVal) {
-  if (!auth.currentUser) { window.cachedL4DailyRate = null; return; }
   const [yStr, mStr] = currentMonthVal.split('-'); let cYear = parseInt(yStr); let cMonth = parseInt(mStr);
   let targetMonths = [];
   for (let i = 1; i <= 12; i++) {
@@ -694,10 +733,11 @@ async function updateL4Cache(currentMonthVal) {
     targetMonths.push(pYear + "-" + String(pMonth).padStart(2, '0'));
   }
   try {
-    const docs = await getCachedMonths();
+    const records = await sourceRecords();
     let totalNetBase = 0; let monthsFound = 0;
-    docs.forEach(docObj => {
-      if (targetMonths.includes(docObj.id)) {
+    Object.keys(records).forEach(id => {
+      if (targetMonths.includes(id)) {
+        const docObj = { id, data: records[id] };
         const data = docObj.data;
         const pBase = Math.max(0, parseFloat(data.baseSalary) || userProfile.baseSalary);
         let pPct, pPPct;
@@ -741,7 +781,7 @@ function calculateSalary() {
   const stateDays = getNormHours(cYear, cMonthIdx) / 8;
   let baseSalary = Math.max(0, parseFloat(document.getElementById('baseSalary').value) || userProfile.baseSalary);
   const schedInput = document.getElementById('scheduleDays');
-  const bonusL4Days = Math.max(0, parseInt(document.getElementById('l4Days').value) || 0);   // як у записі місяця, без огляду на PRO
+  const bonusL4Days = Math.max(0, parseInt(document.getElementById('l4Days').value) || 0);   // як у записі місяця, без огляду на fullFeatures
   const split = bonusSplit(selectedBonusPct(), bonusL4Days);
   const inputs = {
     baseSalary, stateDays, year: cYear,
@@ -753,25 +793,25 @@ function calculateSalary() {
     overtimeMorningShifts: Math.max(0, parseInt(document.getElementById('overtimeMorningShifts').value) || 0),
     overtimeNightShifts: Math.max(0, parseInt(document.getElementById('overtimeNightShifts').value) || 0),
     weekendDays: Math.max(0, parseInt(document.getElementById('weekendDays').value) || 0),
-    vacDays: isPremium ? Math.max(0, parseInt(document.getElementById('vacationDays').value) || 0) : 0,
-    dailyUrlopBonus: isPremium ? Math.max(0, parseFloat(document.getElementById('urlopBonus').value) || 0) : 0,
+    vacDays: fullFeatures ? Math.max(0, parseInt(document.getElementById('vacationDays').value) || 0) : 0,
+    dailyUrlopBonus: fullFeatures ? Math.max(0, parseFloat(document.getElementById('urlopBonus').value) || 0) : 0,
     extraBonus: Math.max(0, parseFloat(document.getElementById('extraBonus').value) || 0),
-    bloodDonationDays: isPremium ? Math.max(0, parseInt(document.getElementById('bloodDonationDays').value) || 0) : 0,
-    l4Days: isPremium ? Math.max(0, parseInt(document.getElementById('l4Days').value) || 0) : 0,
+    bloodDonationDays: fullFeatures ? Math.max(0, parseInt(document.getElementById('bloodDonationDays').value) || 0) : 0,
+    l4Days: fullFeatures ? Math.max(0, parseInt(document.getElementById('l4Days').value) || 0) : 0,
     qualityBonusPct: legacyBonus ? legacyBonus.quality : split.quality,
     presenceBonusPct: legacyBonus ? legacyBonus.presence : split.presence,
     isUnder26: userProfile.under26 === 'yes',
     ppkActive: userProfile.ppk === 'yes',
     insuranceActive: userProfile.insurance === 'yes',
     extraDeductionAmount: deductionOf(userProfile),
-    isPremium, l4DailyRateCached: window.cachedL4DailyRate,
+    isPremium: fullFeatures, l4DailyRateCached: window.cachedL4DailyRate,
     nightHoursAdjust: nightHoursAdjustOf({ nightCarryOut: isCarryOn('nightCarryOut'), nightCarryIn: isCarryOn('nightCarryIn') })
   };
   inputs.regWorkedDays = inputs.morningShifts + inputs.afternoonShifts + inputs.nightShifts;
   const res = compute(inputs);
-  // Поріг PIT 120 000: лише для залогінених (потрібні збережені місяці року). Нижче порога extraPit = 0,
+  // Поріг PIT 120 000: зі збережених місяців року (акаунт або локальний профіль). Нижче порога extraPit = 0,
   // тож результат такий самий, як у compute(); понад поріг — 32% замість 12% з надлишку.
-  const ytd = isPremium && ytdState.monthVal === monthVal && !inputs.isUnder26 ? ytdState : null;
+  const ytd = fullFeatures && ytdState.monthVal === monthVal && !inputs.isUnder26 ? ytdState : null;
   const extraPit = ytd ? pitExtra(res, ytd.prev) : 0;
   const net = res.net - extraPit;
   if (inputs.bloodDonationDays > 0) document.getElementById('bloodBonus').value = res.autoDailyBlood.toFixed(2);
@@ -922,7 +962,7 @@ appBody.addEventListener('change', e => {
   const id = e.target.id;
   if (id === 'monthSelect') {
     document.getElementById('scheduleDays').value = stateDaysFor(e.target.value);
-    if (auth.currentUser) loadCloudData(); else { loadLocalGuestData(); calculateSalary(); }
+    if (auth.currentUser) loadCloudData(); else return loadLocalData();
   } else if (isMonthField(e.target)) {
     leaveLegacyBonus(id);
     calculateSalary(); saveLocalGuestData();
@@ -933,7 +973,7 @@ appBody.addEventListener('change', e => {
 /* Гість зберігається одразу при редагуванні, тож підказуємо в момент, коли вмикають перехід. */
 function warnGuestNextCarryIn() {
   const monthVal = document.getElementById('monthSelect').value;
-  const next = readGuestRecords(localStorage)[shiftMonthId(monthVal, -1)];
+  const next = localRecords()[shiftMonthId(monthVal, -1)];
   if (takeNextCarryInWarning(monthVal, { nightCarryOut: isCarryOn('nightCarryOut') }, next)) showToast(dict[currentLang].toastNextCarryIn, 8000);
 }
 
@@ -950,9 +990,122 @@ document.addEventListener('click', e => {
 document.getElementById('langSelect').addEventListener('change', e => window.setLang(e.target.value));
 document.getElementById('themeSelect').addEventListener('change', e => window.setTheme(e.target.value));
 
+/* ВКЛАДКА «ПРОФІЛЬ», розділ «Профілі»: список локальних профілів, додавання, перейменування, видалення.
+   Назва вводиться в полі на сторінці, видалення — у два кроки на сторінці (без alert/confirm/prompt). */
+let profileEdit = null;          // null | { kind: 'add' } | { kind: 'rename', id }
+let profileDeleteId = null;      // профіль, видалення якого чекає підтвердження
+let signedInEmail = '';
+
+function renderProfiles() {
+  const t = dict[currentLang];
+  document.getElementById('profilesSignedIn').classList.toggle('hidden', !signedIn);
+  document.getElementById('profilesSignedIn').innerText = signedIn ? t.profilesSignedIn.replace('{email}', signedInEmail) : '';
+  document.getElementById('profilesLocal').classList.toggle('hidden', signedIn);
+  document.getElementById('profileList').replaceChildren(...profiles.list.map(profileItem));
+  document.getElementById('btn-profile-delete').classList.toggle('hidden', profiles.list.length <= 1);
+  if (profiles.list.length <= 1) profileDeleteId = null;
+  document.getElementById('profileEdit').classList.toggle('hidden', !profileEdit);
+  document.getElementById('profileNameLabel').textContent = profileEdit && profileEdit.kind === 'rename' ? t.profileRename : t.profileAdd;
+  const target = profiles.list.find(p => p.id === profileDeleteId);
+  document.getElementById('profileDelete').classList.toggle('hidden', !target);
+  document.getElementById('profileDeleteText').innerText = target ? t.profileDeleteConfirm.replace('{name}', target.name) : '';
+  document.getElementById('profileActions').classList.toggle('hidden', !!(profileEdit || target));
+  renderWho();
+}
+
+/* Напис у шапці: назва активного локального профілю або email акаунта. Дотик відкриває вкладку «Профіль». */
+function renderWho() {
+  const el = document.getElementById('whoBadge');
+  const text = signedIn ? signedInEmail : activeProfile(profiles).name;
+  el.textContent = text;
+  el.setAttribute('title', text);
+  el.setAttribute('aria-label', `${dict[currentLang].navProfile}: ${text}`);
+}
+
+function profileItem(p) {
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'pill prof-item'; btn.textContent = p.name;
+  btn.setAttribute('aria-pressed', String(p.id === profiles.active));
+  btn.addEventListener('click', () => (p.id === profiles.active ? undefined : switchProfile(p.id)));
+  return btn;
+}
+
+let profileNameError = null;
+function showProfileNameError(error) {
+  profileNameError = error;
+  const el = document.getElementById('profileNameError');
+  el.classList.toggle('hidden', !error);
+  el.innerText = error === 'duplicate' ? dict[currentLang].errProfileDuplicate : error ? dict[currentLang].errProfileName : '';
+}
+
+function openProfileEdit(edit) {
+  profileEdit = edit; profileDeleteId = null;
+  const input = document.getElementById('profileName');
+  input.value = edit.kind === 'rename' ? activeProfile(profiles).name : '';
+  showProfileNameError(null);
+  renderProfiles();
+  if (input.focus) input.focus();
+}
+
+function closeProfilePanels() { profileEdit = null; profileDeleteId = null; showProfileNameError(null); renderProfiles(); }
+
+/* Інший активний профіль (або видалено активний): одразу перезавантажуємо місяць, налаштування профілю, «Деталі», статистику. */
+async function applyProfiles(state) {
+  const changed = state.active !== profiles.active;
+  profiles = state; profileEdit = null; profileDeleteId = null;
+  renderProfiles();
+  if (!changed || signedIn) return;
+  carryInWarned.clear();
+  window.cachedL4DailyRate = null; ytdState = { monthVal: '', prev: 0, found: 0, expected: 0 };
+  await loadProfile();
+  await loadLocalData();
+  calculateSalary();
+  resetStatsView();
+}
+
+async function switchProfile(id) {
+  if (signedIn) return;
+  const r = setActiveProfile(localStorage, id);
+  if (r.ok) await applyProfiles(r.state);
+}
+
+async function saveProfileName() {
+  if (!profileEdit || signedIn) return;
+  const text = document.getElementById('profileName').value;
+  const r = profileEdit.kind === 'rename'
+    ? renameProfile(localStorage, profileEdit.id, text)
+    : createProfile(localStorage, text);
+  if (!r.ok) return showProfileNameError(r.error);
+  showProfileNameError(null);
+  if (profileEdit.kind === 'add') {                     // новий профіль одразу стає активним: його й заповнюватимуть
+    const active = setActiveProfile(localStorage, r.id);
+    return applyProfiles(active.state);
+  }
+  return applyProfiles(r.state);
+}
+
+async function confirmDeleteProfile() {
+  if (!profileDeleteId || signedIn) return;
+  const r = deleteProfile(localStorage, profileDeleteId);
+  profileDeleteId = null;
+  if (r.ok) await applyProfiles(r.state); else renderProfiles();
+}
+
+document.getElementById('btn-profile-add').addEventListener('click', () => openProfileEdit({ kind: 'add' }));
+document.getElementById('btn-profile-rename').addEventListener('click', () => openProfileEdit({ kind: 'rename', id: profiles.active }));
+document.getElementById('btn-profile-delete').addEventListener('click', () => {
+  if (profiles.list.length <= 1) return;
+  profileEdit = null; profileDeleteId = profiles.active; renderProfiles();
+});
+document.getElementById('btn-profile-name-save').addEventListener('click', saveProfileName);
+document.getElementById('btn-profile-name-cancel').addEventListener('click', closeProfilePanels);
+document.getElementById('btn-profile-delete-yes').addEventListener('click', confirmDeleteProfile);
+document.getElementById('btn-profile-delete-no').addEventListener('click', closeProfilePanels);
+document.getElementById('profileName').addEventListener('input', () => showProfileNameError(null));
+
 /* ВКЛАДКА «СТАТИСТИКА»: підсумки за період (цифри рахують ті самі calc.js + pit.js, що й калькулятор).
    Період: останні 3/6/12 місяців або вибрані роки. Майбутніх місяців немає: максимум — поточний.
-   Джерело: гість — guest_month_* у localStorage; акаунт — хмара, а без мережі локальні копії місяців. */
+   Джерело: локальний профіль — його guest_month_* (sourceRecords); акаунт — хмара, а без мережі локальні копії місяців. */
 const DEFAULT_PERIOD = () => ({ mode: '12', years: [] });
 let statsPeriod = DEFAULT_PERIOD();   // { mode: '3'|'6'|'12'|'years', years: [] }
 let statsPick = null;      // вибраний на графіку стовпчик (key)
@@ -960,24 +1113,14 @@ let statsToken = 0;        // відкидає застарілі відпові
 let statsLast = null;      // { years, stats } — щоб перемальовувати (мова, вибір стовпчика) без повторного читання даних
 const statsNow = () => (TEST.now !== undefined ? new Date(TEST.now) : new Date());   // «сьогодні»; у тестах підміняється
 
-async function gatherStatsRecords() {
-  if (!auth.currentUser) return readGuestRecords(localStorage);
-  const uid = auth.currentUser.uid, records = {};
-  (await getCachedMonths()).forEach(d => { records[d.id] = d.data; });
-  for (const id of listMonthCache(localStorage, uid)) {                  // хмара недоступна/неповна — доповнюємо локальними копіями
-    if (!records[id]) { const c = loadMonthCache(localStorage, uid, id); if (c) records[id] = c.data; }
-  }
-  return records;
-}
-
 async function renderStats({ reset = false } = {}) {
   const token = ++statsToken;
-  const records = await gatherStatsRecords();
+  const records = await sourceRecords({ cached: 'all' });
   if (token !== statsToken) return;
   const now = statsNow(), years = availableYears(records, now);
   if (reset) { statsPeriod = DEFAULT_PERIOD(); statsPick = null; }
   statsPeriod = normalizePeriod(statsPeriod, years, now);
-  statsLast = { years, stats: collectPeriodStats(records, statsPeriod, userProfile, { premium: isPremium, now }) };
+  statsLast = { years, stats: collectPeriodStats(records, statsPeriod, userProfile, { premium: fullFeatures, now }) };
   paintStats();
 }
 

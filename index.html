@@ -32,7 +32,7 @@
 </div>
 
 <header class="top"><div class="topbar">
-<div class="brand"><span class="mark" aria-hidden="true">zł</span><h1 data-i18n="title">Калькулятор</h1><span class="pro-badge">PRO</span><span class="app-ver" id="appVersion"></span></div>
+<div class="brand"><span class="mark" aria-hidden="true">zł</span><h1 data-i18n="title">Калькулятор</h1><button type="button" class="who" id="whoBadge" data-page="4"></button><span class="app-ver" id="appVersion"></span></div>
 <nav class="tabs" data-i18n-aria="ariaNav" aria-label="Навігація">
 <button type="button" class="tab" data-page="1" aria-current="page"><svg aria-hidden="true" class="icon"><use href="#i-calc"/></svg><span data-i18n="navCalc">Розрахунок</span></button>
 <button type="button" class="tab" data-page="2"><svg aria-hidden="true" class="icon"><use href="#i-doc"/></svg><span data-i18n="navDetails">Деталі</span></button>
@@ -82,7 +82,6 @@
 <div class="field"><div class="lab"><label for="l4Days" data-i18n="l4Days">Лікарняний L4</label><small data-i18n="hintL4">Календарних днів</small></div><div class="ctl"><input type="number" inputmode="numeric" id="l4Days" placeholder="0"></div></div>
 <div class="field sub hidden" id="l4MissedGroup"><div class="lab"><label for="l4MissedShifts" data-i18n="l4Missed">Пропущено (змін)</label></div><div class="ctl"><input type="number" inputmode="numeric" id="l4MissedShifts" placeholder="0"></div></div></section>
 
-<p class="note guest-only" data-i18n="proNote">Відпустка, поважна відсутність та лікарняний доступні після входу (PRO).</p>
 <button type="button" class="btn" data-page="2" data-i18n="toDetails">Деталізація</button>
 <div class="hidden" data-cloud-only><button type="button" id="btn-sync-up-calc" class="btn primary" data-sync-up data-i18n="btnSaveCloud">Зберегти місяць</button></div>
 </div></div></section>
@@ -141,7 +140,27 @@
 
 <section class="view" id="viewProfile">
 <h2 class="vt" data-i18n="navProfile">Профіль</h2><div class="layout one"><div class="forms">
-<section class="card"><h3 data-i18n="navProfile">Профіль</h3>
+<section class="card" id="profilesCard"><h3 data-i18n="profilesTitle">Профілі</h3>
+<p class="card-sub hidden" id="profilesSignedIn"></p>
+<div id="profilesLocal">
+<div class="pills prof-list" id="profileList" role="group" data-i18n-aria="profilesTitle" aria-label="Профілі"></div>
+<div class="prof-actions" id="profileActions">
+<button type="button" id="btn-profile-add" class="btn" data-i18n="profileAdd">Додати профіль</button>
+<button type="button" id="btn-profile-rename" class="btn" data-i18n="profileRename">Перейменувати</button>
+<button type="button" id="btn-profile-delete" class="btn danger hidden" data-i18n="profileDelete">Видалити</button></div>
+<div class="hidden" id="profileEdit">
+<div class="stack"><label for="profileName" id="profileNameLabel">Додати профіль</label><div class="ctl"><input type="text" id="profileName" maxlength="60" autocomplete="off" data-i18n-ph="profileNamePh" placeholder="Назва профілю"></div></div>
+<p class="field-error hidden" id="profileNameError" role="alert"></p>
+<button type="button" id="btn-profile-name-save" class="btn primary" data-i18n="profileNameSave">Зберегти</button>
+<button type="button" id="btn-profile-name-cancel" class="btn" data-i18n="profileCancel">Скасувати</button></div>
+<div class="hidden" id="profileDelete" role="alertdialog" aria-labelledby="profileDeleteText">
+<p class="prof-confirm" id="profileDeleteText"></p>
+<button type="button" id="btn-profile-delete-yes" class="btn danger" data-i18n="profileDeleteYes">Так, видалити</button>
+<button type="button" id="btn-profile-delete-no" class="btn" data-i18n="profileCancel">Скасувати</button></div>
+<p class="card-sub" data-i18n="profilesNote">Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються лише на цьому пристрої.</p>
+</div></section>
+
+<section class="card"><h3 data-i18n="profSettingsTitle">Налаштування профілю</h3>
 <div class="field"><div class="lab"><label for="profBaseSalary" data-i18n="profBase">Стандартна ставка (zł)</label></div><div class="ctl"><input type="number" inputmode="decimal" id="profBaseSalary" placeholder="0"></div></div>
 <div class="field"><div class="lab"><label for="profUnder26" data-i18n="profAge">Вік до 26 років</label></div><div class="ctl sel"><select id="profUnder26"><option value="no" data-i18n="no">Ні</option><option value="yes" data-i18n="yes">Так</option></select></div></div><div class="field"><div class="lab"><label for="profPpk" data-i18n="profPpk">Участь у PPK</label></div><div class="ctl sel"><select id="profPpk"><option value="no" data-i18n="no">Ні</option><option value="yes" data-i18n="yes">Так</option></select></div></div><div class="field"><div class="lab"><label for="profExtraDeduction" data-i18n="profExtraDeduction">Додаткове відрахування, zł/міс.</label><small data-i18n="hintExtraDeduction">Наприклад, додаткове страхування</small></div><div class="ctl"><input type="text" inputmode="decimal" autocomplete="off" id="profExtraDeduction" data-clear-on-focus="0" placeholder="0"></div></div>
 <p class="field-error hidden" id="profExtraDeductionError" role="alert"></p>

@@ -19,9 +19,10 @@ assert.ok(/importScripts\(\s*'\.\/js\/version\.js'\s*\)/.test(sw), 'sw.js має
 assert.ok(/const VERSION = self\.APP_VERSION/.test(sw), 'sw.js має брати VERSION з self.APP_VERSION');
 assert.ok(/CORE = \[[^\]]*'\.\/js\/version\.js'/.test(sw), 'version.js має бути в precache (CORE)');
 
-// index.html: бейдж у шапці поруч із PRO, класичний скрипт стоїть перед модулем
+// index.html: бейдж версії в шапці поруч із написом профілю (плашку PRO прибрано в 1.19.0), класичний скрипт стоїть перед модулем
 const html = read('index.html');
-assert.ok(/class="pro-badge">PRO<\/span><span class="app-ver" id="appVersion"><\/span>/.test(html), 'немає #appVersion поруч із PRO');
+assert.ok(/<button type="button" class="who" id="whoBadge" data-page="4"><\/button><span class="app-ver" id="appVersion"><\/span>/.test(html), 'немає #appVersion поруч із написом профілю');
+assert.ok(!/pro-badge|>PRO</.test(html), 'плашки PRO в шапці більше немає');
 const iv = html.indexOf('src="js/version.js"'), im = html.indexOf('type="module" src="js/app.js"');
 assert.ok(iv > 0 && im > iv, 'version.js має підключатись перед app.js');
 

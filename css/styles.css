@@ -10,7 +10,7 @@ button{font:inherit;color:inherit;cursor:pointer}:focus-visible{outline:2px soli
 .mark{width:36px;height:36px;border-radius:11px;background:var(--primary);color:var(--on-primary);display:grid;place-items:center;font-weight:800;font-size:14px;flex:none}
 h1{font-size:18px;margin:0;letter-spacing:-.01em;white-space:nowrap}
 .app-ver{flex:none;font-size:11px;font-weight:600;color:var(--text-muted);white-space:nowrap}
-.pro-badge{display:none;font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--pro-soft);color:var(--pro)}.is-logged-in .pro-badge{display:inline-block}
+.who{flex:0 1 auto;min-width:0;max-width:14em;min-height:28px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700;padding:2px 8px;border:0;border-radius:6px;background:var(--pro-soft);color:var(--pro)}.who:empty{display:none}
 .icon-btn{width:44px;height:44px;flex:none;border-radius:12px;border:1px solid var(--border);background:var(--surface);display:grid;place-items:center;position:relative}
 .icon{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .seg{display:flex;padding:3px;border-radius:12px;background:var(--surface);border:1px solid var(--border);height:44px}
@@ -46,7 +46,7 @@ input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,in
 .btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;margin-top:10px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);font-weight:600;padding:0 16px}
 .btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}.btn:active{opacity:.85}.btn:disabled{opacity:.5}
 .card .btn:last-child{margin-bottom:8px}.note{margin:0;padding:12px 14px;border-radius:12px;background:var(--pro-soft);font-size:14px;border:1px solid var(--border)}
-.pro-only{display:none}.is-logged-in .card.pro-only{display:block}.is-logged-in .field.pro-only{display:flex}.is-logged-in .guest-only{display:none}
+.pro-only{display:none}.full-features .card.pro-only{display:block}.full-features .field.pro-only{display:flex}.full-features .guest-only{display:none}
 .acct{font-size:13px;font-weight:600;color:var(--primary);margin:8px 0 0;word-break:break-all}
 .row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:11px 0;border-top:1px solid var(--border);font-size:15px}
 .row b{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}.row.subrow{font-size:13.5px;color:var(--text-muted);padding-left:12px}
@@ -61,7 +61,7 @@ main{max-width:1080px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 3
 .aside{order:2;top:88px}.forms{order:1}.layout.dl .dside{order:2;position:sticky;top:88px}.hero-net{font-size:44px}.vt{font-size:26px}}
 h1{overflow:hidden;text-overflow:ellipsis}@media(max-width:420px){.mark{display:none}.topbar{gap:8px}}
 @media(max-width:420px){.seg button{padding:0 8px}.topbar .icon-btn{width:40px}.brand{gap:6px}}
-@media(max-width:420px){h1{font-size:16px}.pro-badge{padding:2px 5px;font-size:10px}}@media(max-width:370px){.pro-badge{display:none!important}}
+@media(max-width:420px){h1{font-size:16px}.who{max-width:9em;padding:2px 5px;font-size:11px}}@media(max-width:370px){.who{max-width:6em}}
 @media(max-width:899px){
 body{padding-bottom:calc(168px + env(safe-area-inset-bottom))}
 .aside{position:fixed;top:auto;bottom:calc(72px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:100%;max-width:660px;padding:0 12px;z-index:25}
@@ -157,3 +157,6 @@ body{padding-bottom:calc(168px + env(safe-area-inset-bottom))}
   .tabs{gap:2px;padding-left:4px;padding-right:4px}
   .tab{padding:0;font-size:clamp(8.5px,2.7vw,11px)}
 }
+.prof-list{margin:4px 0 10px}.prof-item{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prof-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}.prof-actions .btn{flex:1 1 auto;width:auto;margin:0}
+.prof-confirm{margin:4px 0 10px;font-weight:600}.btn.danger{color:var(--danger)}

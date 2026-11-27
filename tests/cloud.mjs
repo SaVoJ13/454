@@ -247,7 +247,10 @@ await fire(getEl('btn-logout'), 'click');
 assert.ok(![...store.keys()].some(k => k.startsWith('cloud_month_u1_')), 'копії місяців акаунта видалені');
 assert.ok(!store.has('user_profile_u1'), 'локальна копія профілю акаунта видалена');
 assert.ok(store.has('guest_month_2026-01'), 'гостьові дані не чіпаємо');
-assert.equal(getEl('rowPitYtd').classList.contains('hidden'), true, 'після виходу рядки порога PIT сховані (у гостя їх немає)');
+// з 1.19.0 після виходу діє локальний профіль з усіма функціями: поріг PIT рахується з ЙОГО місяців (лише січень), а не з акаунта
+assert.equal(getEl('rowPitExtra').classList.contains('hidden'), true, 'після виходу додаткового PIT акаунта немає');
+assert.equal(getEl('rowPitYtd').classList.contains('hidden'), false, 'локальний профіль показує свою базу PIT з початку року');
+assert.equal(getEl('pitYtdNote').innerText, dict.uk.pitYtdNote.replace('{found}', 1).replace('{expected}', 11), 'з 11 місяців року в локальному профілі збережено 1');
 await sleep(80);
 assert.equal(getEl('statsCountVal').textContent, '1 / 12', 'після виходу вкладка «Статистика» показує дані гостя, а не акаунта');
 window.switchPage(1);
