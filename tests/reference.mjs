@@ -180,6 +180,7 @@ function computeDailyUrlopBonus(records, monthVal, cur, lag = 2) {
 const ctx = vm.createContext({});
 vm.runInContext(src + '\n;this.api={CONFIG,getNormHours,stateDaysFor,getMinWage,compute,computeDailyUrlopBonus};', ctx);
 const ref = ctx.api;
+ref.CONFIG.MIN_WAGES[2027] = 4950;   // Свідома зміна власника 2026-11-26: мінімалка 2027, Dz.U. 2026 poz. 1213
 
 // mulberry32
 let seed = 20261020;
@@ -193,6 +194,7 @@ const same = (a, b, where) => {
 
 // 1. Константи
 assert.equal(JSON.stringify(mine.CONFIG), JSON.stringify(ref.CONFIG), 'CONFIG відрізняється від оригіналу');
+ref.CONFIG.MIN_WAGES[2028] = 4950;   // Свідома зміна власника 2026-11-26: для років без запису береться остання відома мінімалка
 
 // 2. Норма годин: усі місяці 2000–2040
 for (let y = 2000; y <= 2040; y++) for (let m = 0; m < 12; m++)

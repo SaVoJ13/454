@@ -11,7 +11,8 @@
    - аванс округлюється до повних злотих.
    Нижче порога результат збігається з calc.js до злотого (це перевіряє tests/pit.mjs). */
 
-import { CONFIG, compute, getNormHours } from './calc.js';
+import { CONFIG, compute, getNormHours, nightHoursAdjustOf, bonusSplit, hasBonusTotal } from './calc.js';
+import { deductionOf } from './deduction.js';
 
 export const PIT_LIMIT = 120000;
 export const PIT_RATE_HIGH = 0.32;
@@ -48,10 +49,15 @@ export function inputsFromSaved(data, monthId, profile, { premium = true } = {})
   const int = k => Math.max(0, parseInt(data[k]) || 0);
   const flt = k => Math.max(0, parseFloat(data[k]) || 0);
   const l4Days = int('l4Days');
-  const qualityBonusPct = data.bonusPctSelect === undefined ? 10 : (parseFloat(data.bonusPctSelect) || 0);
-  const presenceBonusPct = data.presencePctSelect === undefined
-    ? (l4Days > 0 ? (l4Days <= 2 ? 2.5 : 0) : 5)
-    : (parseFloat(data.presencePctSelect) || 0);
+  let qualityBonusPct, presenceBonusPct;
+  if (hasBonusTotal(data)) {
+    ({ quality: qualityBonusPct, presence: presenceBonusPct } = bonusSplit(data.bonusTotalPct, l4Days));
+  } else {
+    qualityBonusPct = data.bonusPctSelect === undefined ? 10 : (parseFloat(data.bonusPctSelect) || 0);
+    presenceBonusPct = data.presencePctSelect === undefined
+      ? (l4Days > 0 ? (l4Days <= 2 ? 2.5 : 0) : 5)
+      : (parseFloat(data.presencePctSelect) || 0);
+  }
   const inputs = {
     baseSalary: Math.max(0, parseFloat(data.baseSalary) || Number(profile.baseSalary)),
     stateDays, year,
@@ -59,12 +65,14 @@ export function inputsFromSaved(data, monthId, profile, { premium = true } = {})
     morningShifts: int('morningShifts'), afternoonShifts: int('afternoonShifts'), nightShifts: int('nightShifts'),
     overtimeDays: flt('overtimeDays'),
     overtimeMorningShifts: int('overtimeMorningShifts'), overtimeNightShifts: int('overtimeNightShifts'),
+    nightHoursAdjust: nightHoursAdjustOf(data),
     weekendDays: int('weekendDays'),
     vacDays: premium ? int('vacationDays') : 0, dailyUrlopBonus: premium ? flt('urlopBonus') : 0,
     extraBonus: flt('extraBonus'),
     bloodDonationDays: premium ? int('bloodDonationDays') : 0, l4Days: premium ? l4Days : 0,
     qualityBonusPct, presenceBonusPct,
     isUnder26: profile.under26 === 'yes', ppkActive: profile.ppk === 'yes', insuranceActive: profile.insurance === 'yes',
+    extraDeductionAmount: deductionOf(profile),
     isPremium: premium,              // за замовчуванням — місяці залогіненого акаунта; для гостя premium: false
     l4DailyRateCached: null          // для минулих місяців середнє за 12 місяців не відновлюємо: беремо ставку від окладу
   };

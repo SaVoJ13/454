@@ -6,8 +6,31 @@ export const CONFIG = {
   LAUNDRY_MAX: 16.00, BENEFIT_ZUS_NFZ: 30.25, BENEFIT_TAX: 54.00,
   EXTRA_INSURANCE_RATE: 36.70, NIGHT_SHIFT_BONUS: 30.00,
   WEEKEND_DAY_RATE: 100.00, DAILY_HOURS: 8,
-  MIN_WAGES: { 2024: 4300, 2025: 4666, 2026: 4806 }
+  MIN_WAGES: { 2024: 4300, 2025: 4666, 2026: 4806, 2027: 4950 }   // 2027: Dz.U. 2026 poz. 1213
 };
+
+/* Нічна зміна, що починається в останній день місяця (21:50, нічний час 22:00–6:00): 2 год нічного часу
+   лишаються в цьому місяці, 6 год переходять у наступний. Поля місяця nightCarryOut / nightCarryIn (true/false);
+   у старих записах їх немає — це false. Доплата за зміну (NIGHT_SHIFT_BONUS) не переноситься. */
+export const NIGHT_CARRY_HOURS = 6;
+export const nightHoursAdjustOf = data =>
+  (data.nightCarryIn === true ? NIGHT_CARRY_HOURS : 0) - (data.nightCarryOut === true ? NIGHT_CARRY_HOURS : 0);
+
+/* Одне поле премії: місяць зберігає обраний відсоток bonusTotalPct (число), а L4 зменшує його автоматично
+   (1–2 дні: −2,5; більше 2 днів: −5). У записах без bonusTotalPct лишаються два старі поля
+   bonusPctSelect / presencePctSelect — їх кожне місце читає своїм попереднім кодом. */
+export const l4BonusCut = l4Days => (l4Days > 2 ? 5 : l4Days > 0 ? 2.5 : 0);
+export const effectiveBonusPct = (selected, l4Days) => Math.max(0, selected - l4BonusCut(l4Days));
+export const hasBonusTotal = data => Number.isFinite(data.bonusTotalPct);
+
+/* Поділ вибраної премії на дві складові compute(): перші 5 % — «присутність», решта — «якість»; зменшення за L4
+   спершу знімається з присутності. Для 15 % це рівно старі значення (5 / 2,5 / 0 і 10), тож суми побітово ті самі.
+   presence + quality = effectiveBonusPct(selected, l4Days). */
+export function bonusSplit(selected, l4Days) {
+  const cut = l4BonusCut(l4Days), p0 = Math.min(selected, 5);
+  const presence = Math.max(0, p0 - cut), rem = Math.max(0, cut - p0);
+  return { presence, quality: Math.max(0, selected - p0 - rem) };
+}
 
 export function getEaster(year) {
   const a = year % 19, b = Math.floor(year / 100), c = year % 100;
@@ -50,7 +73,24 @@ export const stateDaysFor = (monthVal) => {
   return getNormHours(parseInt(y), parseInt(m) - 1) / 8;
 };
 
-export const getMinWage = (year) => CONFIG.MIN_WAGES[year] || 4806;
+/* Суми мінімалки, введені користувачем для років без офіційної: { '2028': 5100 }.
+   Виняток із правила без глобального стану: щоб не змінювати stats.js і сигнатури; за замовчуванням порожньо —
+   поведінка як раніше. */
+let userMinWages = {};
+export function setUserMinWages(map) { userMinWages = { ...map }; }
+
+/* Мінімалка на рік: офіційна з CONFIG (source 'official'), інакше введена користувачем ('user'). Без обох: для років
+   після останнього відомого — сума останнього відомого (isKnown: false); для років до першого запису — 4806
+   (сума 2026 року), як і раніше. */
+export function minWageInfo(year) {
+  if (CONFIG.MIN_WAGES[year]) return { value: CONFIG.MIN_WAGES[year], knownYear: Number(year), isKnown: true, source: 'official' };
+  if (userMinWages[year]) return { value: userMinWages[year], knownYear: Number(year), isKnown: true, source: 'user' };
+  const last = Math.max(...Object.keys(CONFIG.MIN_WAGES).map(Number));
+  if (year > last) return { value: CONFIG.MIN_WAGES[last], knownYear: last, isKnown: false };
+  return { value: 4806, knownYear: 2026, isKnown: false };
+}
+
+export const getMinWage = (year) => minWageInfo(year).value;
 
 export function compute(inputs) {
   const {
@@ -59,7 +99,7 @@ export function compute(inputs) {
     weekendDays, overtimeDays, vacDays, dailyUrlopBonus, extraBonus,
     bloodDonationDays, l4Days, isPremium,
     isUnder26, ppkActive, insuranceActive, l4DailyRateCached,
-    year
+    year, nightHoursAdjust = 0, extraDeductionAmount
   } = inputs;
 
   let adjustedBase = baseSalary; let l4Pay = 0;
@@ -82,7 +122,8 @@ export function compute(inputs) {
   const totalMorningShifts = morningShifts + overtimeMorningShifts;
   const totalNightShifts = nightShifts + overtimeNightShifts;
 
-  const totalNightTimePay = Math.round(((totalMorningShifts * (10/60) * nightTariff) + (totalNightShifts * 8 * nightTariff)) * 100) / 100;
+  const nightShiftHours = Math.max(0, totalNightShifts * 8 + nightHoursAdjust);
+  const totalNightTimePay = Math.round(((totalMorningShifts * (10/60) * nightTariff) + (nightShiftHours * nightTariff)) * 100) / 100;
   const totalNightShiftPay = totalNightShifts * CONFIG.NIGHT_SHIFT_BONUS;
   const totalNightPay = totalNightTimePay + totalNightShiftPay;
 
@@ -118,7 +159,9 @@ export function compute(inputs) {
   const totalBenefitCost = CONFIG.BENEFIT_ZUS_NFZ + CONFIG.BENEFIT_TAX;
   let laundryAllowance = (schedDays > 0) ? Math.min(CONFIG.LAUNDRY_MAX, (regWorkedDays / schedDays) * CONFIG.LAUNDRY_MAX) : 0;
   const ppkCost = ppkActive ? gross * 0.02 : 0;
-  const extraInsurance = insuranceActive ? CONFIG.EXTRA_INSURANCE_RATE : 0;
+  // Сума з профілю має перевагу; без неї — як раніше, фіксоване страхування за прапорцем insuranceActive
+  const extraInsurance = Number.isFinite(extraDeductionAmount) ? Math.max(0, extraDeductionAmount)
+    : (insuranceActive ? CONFIG.EXTRA_INSURANCE_RATE : 0);
 
   const net = gross - zus - nfz - pit - ppkCost - extraInsurance - totalBenefitCost + laundryAllowance;
 
@@ -152,11 +195,16 @@ export function buildVacationEntry(monthId, data, fallbackBase) {
   const n = k => Math.max(0, parseFloat(data[k]) || 0);
   const sched = parseInt(data.scheduleDays) || normHours / 8;
   const base = n('baseSalary') || fallbackBase;
-  const qPct = isNaN(parseFloat(data.bonusPctSelect)) ? 10 : parseFloat(data.bonusPctSelect);
-  let presencePct = parseFloat(data.presencePctSelect);
-  if (isNaN(presencePct)) {
-    const l4 = n('l4Days');
-    presencePct = l4 > 0 ? (l4 <= 2 ? 2.5 : 0) : 5;
+  let qPct, presencePct;
+  if (hasBonusTotal(data)) {
+    ({ quality: qPct, presence: presencePct } = bonusSplit(data.bonusTotalPct, n('l4Days')));
+  } else {
+    qPct = isNaN(parseFloat(data.bonusPctSelect)) ? 10 : parseFloat(data.bonusPctSelect);
+    presencePct = parseFloat(data.presencePctSelect);
+    if (isNaN(presencePct)) {
+      const l4 = n('l4Days');
+      presencePct = l4 > 0 ? (l4 <= 2 ? 2.5 : 0) : 5;
+    }
   }
   const morning = n('morningShifts'), afternoon = n('afternoonShifts'), night = n('nightShifts');
   let worked = morning + afternoon + night;
@@ -170,7 +218,7 @@ export function buildVacationEntry(monthId, data, fallbackBase) {
     normHours,
     workedHours: worked * 8,
     otHours: otDays * 8,
-    nightHours: morningAll * (10 / 60) + nightAll * 8,
+    nightHours: morningAll * (10 / 60) + Math.max(0, nightAll * 8 + nightHoursAdjustOf(data)),
     bonus: sched > 0 ? (base * (presencePct + qPct) / 100) / sched * worked : 0,
     nightBonus: nightAll * CONFIG.NIGHT_SHIFT_BONUS,
     weekendPay: n('weekendDays') * CONFIG.WEEKEND_DAY_RATE

@@ -1,5 +1,5 @@
-:root{color-scheme:light;--bg:#f2f4f8;--surface:#fff;--surface-2:#f1f4f9;--border:#e1e6ee;--text-main:#0e1726;--text-muted:#566479;--primary:#2257e7;--primary-soft:#e8effd;--on-primary:#fff;--success:#0b7a55;--pro:#8a5200;--pro-soft:#fcefd6;--hero-bg:#0f1d3d;--hero-text:#f4f7ff;--hero-muted:#a9b7d6;--hero-net:#6ee7b7;--shadow:0 1px 2px rgba(15,23,42,.05),0 6px 20px rgba(15,23,42,.05)}
-[data-theme=dark]{color-scheme:dark;--bg:#0a0e16;--surface:#121925;--surface-2:#1a2335;--border:#243046;--text-main:#edf1f7;--text-muted:#9aa8bf;--primary:#7fa4ff;--primary-soft:#18264a;--on-primary:#0a1020;--success:#3fd69b;--pro:#f0b95a;--pro-soft:#32230a;--hero-bg:#15223f;--shadow:0 1px 2px rgba(0,0,0,.4)}
+:root{color-scheme:light;--bg:#f2f4f8;--surface:#fff;--surface-2:#f1f4f9;--border:#e1e6ee;--text-main:#0e1726;--text-muted:#566479;--primary:#2257e7;--primary-soft:#e8effd;--on-primary:#fff;--success:#0b7a55;--pro:#8a5200;--pro-soft:#fcefd6;--hero-bg:#0f1d3d;--hero-text:#f4f7ff;--hero-muted:#a9b7d6;--hero-net:#6ee7b7;--shadow:0 1px 2px rgba(15,23,42,.05),0 6px 20px rgba(15,23,42,.05);--danger:#b42318}
+[data-theme=dark]{color-scheme:dark;--bg:#0a0e16;--surface:#121925;--surface-2:#1a2335;--border:#243046;--text-main:#edf1f7;--text-muted:#9aa8bf;--primary:#7fa4ff;--primary-soft:#18264a;--on-primary:#0a1020;--success:#3fd69b;--pro:#f0b95a;--pro-soft:#32230a;--hero-bg:#15223f;--shadow:0 1px 2px rgba(0,0,0,.4);--danger:#ff8a80}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text-main);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-tap-highlight-color:transparent;padding-bottom:calc(84px + env(safe-area-inset-bottom))}
 button{font:inherit;color:inherit;cursor:pointer}:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
@@ -40,6 +40,7 @@ main{max-width:660px;margin:0 auto;padding:8px 16px 0}.view{display:none}.view.a
 input::placeholder{color:var(--text-muted);font-weight:400;opacity:.7}input[readonly]{opacity:.7}
 input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .field.sub{background:var(--primary-soft);border-radius:12px;border-top:0;margin:4px -8px;padding:8px 8px 8px 16px;min-height:52px}
+.chk{width:26px;height:26px;flex:none;margin:0 8px 0 0;accent-color:var(--primary);cursor:pointer}.chk:disabled{opacity:.4;cursor:default}
 .period{display:flex;gap:8px;align-items:center;padding:10px}.period .ctl{flex:1;width:auto}.period select{text-align:center;text-align-last:center;font-size:17px;padding:0 32px}
 .stack{margin:8px 0}.stack label{display:block;margin-bottom:6px}.stack .ctl{width:100%}.stack input{text-align:left}
 .btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;margin-top:10px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);font-weight:600;padding:0 16px}
@@ -127,6 +128,25 @@ body{padding-bottom:calc(168px + env(safe-area-inset-bottom))}
 .mix-legend li{display:flex;align-items:center;gap:0;padding:9px 0;border-top:1px solid var(--border);font-size:14px}
 .mix-legend .name{flex:1;min-width:0}
 .mix-legend b{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Помилка під полем; список відрахувань унизу «Деталей» (стрілка й заголовок — як у .missing) */
+.field-error{margin:0 0 8px;font-size:13px;color:var(--danger)}
+.breakdown{margin-top:12px}.breakdown .ded-check{color:var(--text-main);font-variant-numeric:tabular-nums}
+
+/* Пояснення під значком «i» біля назви поля: значок праворуч у колонці назви (17px + відступи 12px = область дотику
+   41px), текст — під назвою. Колір як у другорядного тексту, розгорнуте — primary. */
+.with-info{position:relative}.with-info label{display:block;padding-right:41px}
+.info summary{position:absolute;top:-10px;right:0;display:flex;padding:12px;border-radius:12px;color:var(--text-muted);cursor:pointer;list-style:none}
+.info summary::-webkit-details-marker{display:none}
+.info[open] summary{color:var(--primary)}
+.info-icon{width:17px;height:17px}
+
+/* «Раніше входили»: чип = адреса (підставляє в поле) + «×» (забути); області дотику 40px */
+.known{margin:0 0 4px}.known .card-sub{margin:4px 0 6px}.known-list{display:flex;flex-wrap:wrap;gap:8px}
+.mail-chip{display:flex;align-items:center;max-width:100%;border:1px solid var(--border);border-radius:999px;background:var(--surface-2)}
+.mail-chip button{min-height:40px;border:0;background:none;border-radius:999px}
+.mail-pick{min-width:0;padding:0 2px 0 14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600}
+.mail-forget{flex:none;width:40px;color:var(--text-muted);font-size:20px}
 
 /* П'ять вкладок унизу: довгий підпис обрізається трикрапкою, а не розпирає рядок */
 .tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

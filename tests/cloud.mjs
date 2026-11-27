@@ -13,7 +13,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Статичні перевірки скидання пароля: експорт із firebase.js і кнопка всередині форми входу (type=button — не відправляє форму)
 assert.ok(/sendPasswordResetEmail/.test(readFileSync(join(root, 'js/firebase.js'), 'utf8')), 'firebase.js не експортує sendPasswordResetEmail');
 const html = readFileSync(join(root, 'index.html'), 'utf8');
-const formHtml = html.slice(html.indexOf('<form id="auth-form"'), html.indexOf('</form>'));
+const formHtml = html.slice(html.indexOf('<form id="loginForm"'), html.indexOf('</form>'));
 assert.ok(/<button type="button" id="btn-reset-password"/.test(formHtml), '«Забули пароль?» має бути type="button" усередині форми входу');
 
 const { getEl, fire, fireWindow, store } = installFakeDom({ groups: { '#periodPills .pill': ['pill3', 'pill6', 'pill12', 'pillYears'] } });

@@ -12,7 +12,7 @@ export const dict = {
     overtimeMorning: "З них ранкових ☀️", overtimeNight: "З них нічних 🌙", vacationDays: "Відпустка (днів)", urlopBonus: "Сер. за 1 дн. (zł)",
     bloodDonation: "Поважна відсутність (днів)", bloodBonus: "Сер. за 1 дн. (zł)", l4Days: "Лікарняний L4", l4Missed: "Пропущено (змін)",
     yes: "Так", no: "Ні", menuTitle: "Меню", menuLang: "Мова", menuTheme: "Тема", profHeader: " 👤 Мій профіль",
-    profBase: "Стандартна ставка (zł)", profAge: "Вік до 26 років", profPpk: "Участь у PPK", profIns: "Додаткове страхування",
+    profBase: "Стандартна ставка (zł)", profAge: "Вік до 26 років", profPpk: "Участь у PPK",
     btnSaveProfile: "Зберегти профіль", toastProfOk: "Профіль збережено!", optThemeLight: "Світла", optThemeDark: "Темна",
     cloudHeader: "Акаунт & Хмара", btnLogin: "Увійти (PRO)", btnRegister: "Реєстрація", btnSaveCloud: "Зберегти місяць",
     btnLoadCloud: "Завантажити", btnLogout: "Вийти", swipeHintLeft: "← Свайп для деталей", swipeHintRight: "Свайп вправо →",
@@ -34,7 +34,7 @@ export const dict = {
     overtimeMorning: "W tym porannych ☀️", overtimeNight: "W tym nocnych 🌙", vacationDays: "Urlop (dni)", urlopBonus: "Średnia z 1 dn. (zł)",
     bloodDonation: "Nieobecność usprawiedliwiona (dni)", bloodBonus: "Średnia z 1 dn. (zł)", l4Days: "L4 (dni kalend.)", l4Missed: "Opuszczone (zmian)",
     yes: "Tak", no: "Nie", menuTitle: "Menu", menuLang: "Język", menuTheme: "Motyw", profHeader: " 👤 Mój Profil",
-    profBase: "Standardowa stawka (zł)", profAge: "Wiek < 26 lat", profPpk: "PPK", profIns: "Ubezpieczenie",
+    profBase: "Standardowa stawka (zł)", profAge: "Wiek < 26 lat", profPpk: "PPK",
     btnSaveProfile: "Zapisz profil", toastProfOk: "Profil zapisany!", optThemeLight: "Jasny", optThemeDark: "Ciemny",
     cloudHeader: "Konto & Chmura", btnLogin: "Zaloguj (PRO)", btnRegister: "Rejestracja", btnSaveCloud: "Zapisz miesiąc",
     btnLoadCloud: "Pobierz", btnLogout: "Wyloguj", swipeHintLeft: "← Przesuń po szczegóły", swipeHintRight: "Przesuń w prawo →",
@@ -57,8 +57,8 @@ Object.assign(dict.uk, {
   netHint: "до виплати", secBase: "Основна зарплата", secBase2: "Основна зарплата та бонуси", secNight: "Нічні зміни та вихідні",
   secVac: "Відпускні", secBlood: "Поважна відсутність", secL4: "Лікарняний", secTotals: "Підсумок", secStats: "Параметри місяця",
   proNote: "Відпустка, поважна відсутність та лікарняний доступні після входу в акаунт (PRO).",
-  guestNote: "Без входу дані зберігаються лише на цьому пристрої.", toDetails: "Деталізація", lblEmail: "Email", lblPwd: "Пароль",
-  hintSched: "Норма змін; рахується автоматично, можна змінити", hintUrlop: "Авто за 3 попередні місяці (з хмари), можна змінити",
+  guestNote: "Без входу дані зберігаються лише на цьому пристрої.", toDetails: "Деталізація", lblEmail: "Email", lblPwd: "Пароль", knownEmailsTitle: "Раніше входили:", ariaForgetEmail: "Забути цей email",
+  hintSched: "Норма змін; рахується автоматично, можна змінити", hintUrlop: "Для коректного розрахунку потрібні збережені дані за попередні 4 місяці.", ariaExplain: "Пояснення",
   hintBlood: "Розраховується автоматично", hintL4: "Календарних днів", ariaTheme: "Змінити тему", ariaLangGrp: "Мова",
   ariaNav: "Навігація", ariaPrev: "Попередній місяць", ariaNext: "Наступний місяць", infoWeekend: "Вихідні дні", lblNettoShort: "з них нетто"
 });
@@ -68,8 +68,8 @@ Object.assign(dict.pl, {
   netHint: "do wypłaty", secBase: "Wynagrodzenie podstawowe", secBase2: "Wynagrodzenie i premie", secNight: "Zmiany nocne i weekendy",
   secVac: "Urlop", secBlood: "Nieobecność usprawiedliwiona", secL4: "Zwolnienie L4", secTotals: "Podsumowanie", secStats: "Parametry miesiąca",
   proNote: "Urlop, nieobecność usprawiedliwiona i L4 są dostępne po zalogowaniu (PRO).",
-  guestNote: "Bez logowania dane są zapisywane tylko na tym urządzeniu.", toDetails: "Szczegóły", lblEmail: "Email", lblPwd: "Hasło",
-  hintSched: "Norma zmian; liczona automatycznie, można zmienić", hintUrlop: "Auto z 3 poprzednich miesięcy (z chmury), można zmienić",
+  guestNote: "Bez logowania dane są zapisywane tylko na tym urządzeniu.", toDetails: "Szczegóły", lblEmail: "Email", lblPwd: "Hasło", knownEmailsTitle: "Wcześniej logowano:", ariaForgetEmail: "Zapomnij ten e-mail",
+  hintSched: "Norma zmian; liczona automatycznie, można zmienić", hintUrlop: "Do poprawnego wyliczenia potrzebne są zapisane dane z 4 poprzednich miesięcy.", ariaExplain: "Wyjaśnienie",
   hintBlood: "Liczone automatycznie", hintL4: "Dni kalendarzowe", ariaTheme: "Zmień motyw", ariaLangGrp: "Język",
   ariaNav: "Nawigacja", ariaPrev: "Poprzedni miesiąc", ariaNext: "Następny miesiąc", infoWeekend: "Dni weekendowe", lblNettoShort: "w tym netto"
 });
@@ -101,7 +101,25 @@ Object.assign(dict.uk, {
   errPermission: "Немає доступу. Увійдіть знову.", errUnknown: "Невідома помилка",
   errInvalidCred: "Невірний email або пароль", errInvalidEmail: "Некоректний email",
   errWeakPwd: "Пароль закороткий (мінімум 6 символів)", errEmailInUse: "Цей email уже зареєстровано",
-  errNetwork: "Немає підключення до мережі", errTooMany: "Забагато спроб, спробуйте пізніше"
+  errNetwork: "Немає підключення до мережі", errTooMany: "Забагато спроб, спробуйте пізніше",
+  nightCarryOut: "Остання нічна зміна переходить у наступний місяць (тут 2 год)", nightCarryIn: "Нічна зміна з попереднього місяця (+6 год)",
+  hintNightCarryAuto: "Увімкнено за попереднім місяцем", infoNightCarry: "Перехідні нічні години",
+  profExtraDeduction: "Додаткове відрахування, zł/міс.", hintExtraDeduction: "Наприклад, додаткове страхування",
+  infoDeduction: "Додаткове відрахування", minWageUnknown: "Мінімалка на {year} ще невідома — використано {sum} за {knownYear}",
+  toastNextCarryIn: "Наступний місяць уже збережено — увімкни в ньому «Нічна зміна з попереднього місяця (+6 год)»",
+  bonusTotal: "Премія", hintBonusConverted: "Премію цього місяця перераховано з двох старих полів — перевір відсоток",
+  pctSign: " %", infoBonusL4: "({selected} − {cut} за L4)",
+  secMinWage: "Мінімальна зарплата", minWageField: "Мінімалка на {year}, zł", errMinWage: "Невірна сума (3000–20000 zł)",
+  minWageAllKnown: "Офіційні суми є для всіх років у календарі: {years}",
+  minWagePriority: "Офіційна сума з оновлення застосунку завжди має перевагу над введеною вручну.",
+  minWageUser: "Мінімалка на {year} введена вручну: {sum}",
+  errDeduction: "Невірна сума", errDeductionMax: "Не більше 2000 zł",
+  dedTitle: "Відрахування: −{sum}", dedZusEmerytalne: "ZUS emerytalne 9,76 %", dedZusRentowe: "ZUS rentowe 1,5 %",
+  dedZusChorobowe: "ZUS chorobowe 2,45 %", dedNfz: "NFZ 9 % (здоров'я)", dedPit: "PIT (12 %, мінус kwota 300)",
+  dedPitExempt: "PIT: звільнення до 26 років — 0", dedPitExtra: "PIT 32 % понад 120 000", dedPpk: "PPK 2 %",
+  dedBenefitZus: "Бенефіт: ZUS/NFZ", dedBenefitTax: "Бенефіт: податок", dedLaundry: "+ Компенсація за прання",
+  dedTotal: "Разом відрахувань", dedCheck: "Брутто − відрахування + прання = Нетто",
+  dedRoundNote: "Сума рядків може відрізнятися на 0,01–0,02 zł через округлення"
 });
 
 Object.assign(dict.pl, {
@@ -131,5 +149,23 @@ Object.assign(dict.pl, {
   errPermission: "Brak dostępu. Zaloguj się ponownie.", errUnknown: "Nieznany błąd",
   errInvalidCred: "Nieprawidłowy email lub hasło", errInvalidEmail: "Nieprawidłowy adres email",
   errWeakPwd: "Hasło jest za krótkie (min. 6 znaków)", errEmailInUse: "Ten email jest już zarejestrowany",
-  errNetwork: "Brak połączenia z siecią", errTooMany: "Zbyt wiele prób, spróbuj później"
+  errNetwork: "Brak połączenia z siecią", errTooMany: "Zbyt wiele prób, spróbuj później",
+  nightCarryOut: "Ostatnia nocna zmiana przechodzi na następny miesiąc (tu 2 godz.)", nightCarryIn: "Nocna zmiana z poprzedniego miesiąca (+6 godz.)",
+  hintNightCarryAuto: "Włączone na podstawie poprzedniego miesiąca", infoNightCarry: "Przechodnie godziny nocne",
+  profExtraDeduction: "Dodatkowe potrącenie, zł/mies.", hintExtraDeduction: "Np. dodatkowe ubezpieczenie",
+  infoDeduction: "Dodatkowe potrącenie", minWageUnknown: "Płaca minimalna na {year} nie jest jeszcze znana — użyto {sum} z {knownYear}",
+  toastNextCarryIn: "Następny miesiąc jest już zapisany — włącz w nim «Nocna zmiana z poprzedniego miesiąca (+6 godz.)»",
+  bonusTotal: "Premia", hintBonusConverted: "Premię tego miesiąca przeliczono z dwóch starych pól — sprawdź procent",
+  pctSign: "%", infoBonusL4: "({selected} − {cut} za L4)",
+  secMinWage: "Płaca minimalna", minWageField: "Płaca minimalna na {year}, zł", errMinWage: "Nieprawidłowa kwota (3000–20000 zł)",
+  minWageAllKnown: "Oficjalne kwoty są dla wszystkich lat w kalendarzu: {years}",
+  minWagePriority: "Oficjalna kwota z aktualizacji aplikacji zawsze ma pierwszeństwo przed wpisaną ręcznie.",
+  minWageUser: "Płaca minimalna na {year} wpisana ręcznie: {sum}",
+  errDeduction: "Nieprawidłowa kwota", errDeductionMax: "Nie więcej niż 2000 zł",
+  dedTitle: "Potrącenia: −{sum}", dedZusEmerytalne: "ZUS emerytalne 9,76%", dedZusRentowe: "ZUS rentowe 1,5%",
+  dedZusChorobowe: "ZUS chorobowe 2,45%", dedNfz: "NFZ 9% (zdrowotna)", dedPit: "PIT (12%, minus kwota 300)",
+  dedPitExempt: "PIT: zwolnienie do 26 lat — 0", dedPitExtra: "PIT 32% powyżej 120 000", dedPpk: "PPK 2%",
+  dedBenefitZus: "Benefit: ZUS/NFZ", dedBenefitTax: "Benefit: podatek", dedLaundry: "+ Ekwiwalent za pranie",
+  dedTotal: "Razem potrąceń", dedCheck: "Brutto − potrącenia + pranie = Netto",
+  dedRoundNote: "Suma pozycji może różnić się o 0,01–0,02 zł z powodu zaokrągleń"
 });

@@ -1,6 +1,10 @@
 import { dict } from './i18n.js';
-import { CONFIG, getNormHours, stateDaysFor, getMinWage, compute, computeDailyUrlopBonus } from './calc.js';
-import { formatPLN, showToast } from './utils.js';
+import { CONFIG, getNormHours, stateDaysFor, getMinWage, minWageInfo, compute, computeDailyUrlopBonus, nightHoursAdjustOf, shiftMonthId, effectiveBonusPct, l4BonusCut, hasBonusTotal, bonusSplit, setUserMinWages } from './calc.js';
+import { formatPLN, formatAmount, showToast, monthList } from './utils.js';
+import { deductionOf, checkDeduction } from './deduction.js';
+import { deductionsBreakdown } from './breakdown.js';
+import { parseMinWage, readUserMinWages, saveUserMinWage, minWageYears } from './minwage.js';
+import { readKnownEmails, rememberEmail, forgetEmail, normalizeEmail } from './emails.js';
 import { saveMonthCache, loadMonthCache, clearMonthCache, listMonthCache } from './monthcache.js';
 import { pitBaseOf, pitExtra, yearToDate } from './pit.js';
 import { collectPeriodStats, readGuestRecords, availableYears, normalizePeriod } from './stats.js';
@@ -48,7 +52,9 @@ function initCloud() {
 
 window.addEventListener('online', () => { initCloud(); });
 
-const NON_MONTH_IDS = new Set(['langSelect', 'themeSelect', 'email', 'password', 'profBaseSalary', 'profUnder26', 'profPpk', 'profIns']);
+const NON_MONTH_IDS = new Set(['langSelect', 'themeSelect', 'email', 'password', 'profBaseSalary', 'profUnder26', 'profPpk', 'profExtraDeduction']);
+const MIN_WAGE_ID = 'minWage';       // поля «Параметрів» minWage2028… створюються за потреби
+const isMonthField = el => !NON_MONTH_IDS.has(el.id) && !el.id.startsWith(MIN_WAGE_ID);
 
 const AUTH_ERR = {
   'auth/invalid-credential': 'errInvalidCred', 'auth/wrong-password': 'errInvalidCred', 'auth/user-not-found': 'errInvalidCred',
@@ -98,15 +104,47 @@ async function loadProfile() {
   document.getElementById('profBaseSalary').value = userProfile.baseSalary;
   document.getElementById('profUnder26').value = userProfile.under26;
   document.getElementById('profPpk').value = userProfile.ppk;
-  document.getElementById('profIns').value = userProfile.insurance;
+  showProfileDeduction();
 }
 
+/* Поле профілю з комою, як пишуть суми в UA/PL; старий профіль показує суму, яку для нього рахує deductionOf(). */
+function showProfileDeduction() {
+  document.getElementById('profExtraDeduction').value = formatAmount(deductionOf(userProfile));
+  showDeductionError(null);
+}
+
+/* Помилка під полем відрахування: null, 'invalid' або 'tooBig' (checkDeduction). */
+let deductionError = null;
+function showDeductionError(error) {
+  deductionError = error;
+  const el = document.getElementById('profExtraDeductionError');
+  el.classList.toggle('hidden', !error);
+  el.innerText = error === 'tooBig' ? dict[currentLang].errDeductionMax : error ? dict[currentLang].errDeduction : '';
+}
+/* Вихід із поля: правильна сума — одразу «35,20»; неправильна — повідомлення, а введений текст лишається. */
+function settleDeduction() {
+  const input = document.getElementById('profExtraDeduction');
+  const checked = checkDeduction(input.value);
+  showDeductionError(checked.error);
+  if (checked.ok) input.value = formatAmount(checked.value);
+}
+document.getElementById('profExtraDeduction').addEventListener('change', settleDeduction);
+// Під час введення лише прибираємо чи уточнюємо вже показане повідомлення; нове з'являється після виходу з поля.
+document.getElementById('profExtraDeduction').addEventListener('input', () => {
+  if (deductionError) showDeductionError(checkDeduction(document.getElementById('profExtraDeduction').value).error);
+});
+
 document.getElementById('btn-save-profile').addEventListener('click', async () => {
+  const deduction = checkDeduction(document.getElementById('profExtraDeduction').value);
+  showDeductionError(deduction.error);
+  if (!deduction.ok) return;                          // з неправильною сумою профіль не зберігається
   const profBase = parseFloat(document.getElementById('profBaseSalary').value);
   userProfile.baseSalary = isNaN(profBase) ? 5750 : profBase;
   userProfile.under26 = document.getElementById('profUnder26').value;
   userProfile.ppk = document.getElementById('profPpk').value;
-  userProfile.insurance = document.getElementById('profIns').value;
+  userProfile.extraDeduction = deduction.value;
+  userProfile.insurance = userProfile.extraDeduction > 0 ? 'yes' : 'no';     // це поле читає веб-версія
+  showProfileDeduction();
   const uid = auth.currentUser ? auth.currentUser.uid : 'guest';
   const localKey = `user_profile_${uid}`;
   localStorage.setItem(localKey, JSON.stringify(userProfile));
@@ -136,8 +174,58 @@ window.setLang = function(lang) {
   document.querySelectorAll('button[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
   document.title = t.appTitle;
   document.getElementById('langSelect').value = lang;
-  initMonths(); calculateSalary(); refreshPeriod(); paintStats();
+  showDeductionError(deductionError);
+  renderKnownEmails(); initMonths(); renderMinWageSettings(); calculateSalary(); refreshPeriod(); paintStats();
 };
+
+/* «ПАРАМЕТРИ»: мінімалка вручну для років календаря без офіційної суми й для всіх років зі збереженою сумою. */
+function renderMinWageSettings() {
+  const saved = readUserMinWages(localStorage);
+  const { years, missing, fields } = minWageYears(monthList(statsNow()).map(m => m.id), saved);
+  document.getElementById('minWageFields').replaceChildren(...fields.map(year => minWageField(year, saved[year])));
+  const allKnown = document.getElementById('minWageAllKnown');
+  allKnown.classList.toggle('hidden', missing.length > 0);
+  allKnown.innerText = missing.length ? '' : dict[currentLang].minWageAllKnown.replace('{years}', years.join(', '));
+}
+
+const showWage = v => (v === undefined || v === null ? '' : formatAmount(v));
+
+function minWageField(year, value) {
+  const make = (tag, className) => { const el = document.createElement(tag); el.className = className; return el; };
+  const box = make('div', ''), field = make('div', 'field'), lab = make('div', 'lab'), ctl = make('div', 'ctl');
+  const label = make('label', ''), input = make('input', ''), error = make('p', 'field-error hidden');
+  input.id = MIN_WAGE_ID + year; input.type = 'text';
+  input.setAttribute('inputmode', 'decimal'); input.setAttribute('autocomplete', 'off');
+  input.setAttribute('data-clear-on-focus', '');
+  input.value = showWage(value);
+  label.setAttribute('for', input.id);
+  label.textContent = dict[currentLang].minWageField.replace('{year}', year);
+  input.addEventListener('change', () => changeMinWage(year, input, error));
+  input.addEventListener('input', () => { if (parseMinWage(input.value).ok) showMinWageError(error, true); });
+  // Дотик очистив поле, тож після «ввів і стер» браузер не бачить зміни (події change не буде) — видаляємо тут.
+  input.addEventListener('blur', () => { if (input.dataset.edited && input.value === '') return changeMinWage(year, input, error); });
+  lab.appendChild(label); ctl.appendChild(input);
+  field.appendChild(lab); field.appendChild(ctl);
+  box.appendChild(field); box.appendChild(error);
+  return box;
+}
+
+function showMinWageError(error, ok) {
+  error.className = ok ? 'field-error hidden' : 'field-error';
+  error.textContent = ok ? '' : dict[currentLang].errMinWage;
+}
+
+async function changeMinWage(year, input, error) {
+  const parsed = parseMinWage(input.value);
+  showMinWageError(error, parsed.ok);
+  if (!parsed.ok) return;                              // неправильне не зберігається — діє попередня сума
+  setUserMinWages(saveUserMinWage(localStorage, year, parsed.value));
+  input.value = showWage(parsed.value);
+  // мінімалка входить у brutto, тож і в накопичену базу PIT та середнє для L4
+  const monthVal = document.getElementById('monthSelect').value;
+  await updateL4Cache(monthVal); await updateYtdCache(monthVal);
+  calculateSalary();
+}
 
 window.setTheme = function(theme) {
   document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : '');
@@ -172,8 +260,100 @@ function updateVisibility() {
   const clear = (hide, ids) => hide && ids.forEach(id => { document.getElementById(id).value = ''; });
   clear(overtimeVal <= 0, ['overtimeMorningShifts', 'overtimeNightShifts']);
   clear(vacDays <= 0, ['urlopBonus']);
+  if (vacDays <= 0) closeUrlopHint();
   clear(bloodDays <= 0, ['bloodBonus']);
   clear(l4Days <= 0, ['l4MissedShifts']);
+  // Перехід у наступний місяць можливий лише за наявності нічної зміни. Позначку не знімаємо (поле могли
+  // тимчасово стерти під час редагування) — неактивна просто не враховується й не зберігається.
+  const nights = ['nightShifts', 'overtimeNightShifts'].reduce((s, id) => s + Math.max(0, parseInt(document.getElementById(id).value) || 0), 0);
+  document.getElementById('nightCarryOut').disabled = nights < 1;
+}
+
+/* Пояснення до відпускних («ℹ»): саме розгортається лише тоді, коли дні відпустки вводять уперше на цьому пристрої. */
+const URLOP_HINT_SEEN_KEY = 'hint_urlop_seen';
+function closeUrlopHint() { document.getElementById('urlopHint').open = false; }
+function revealUrlopHintOnce() {
+  if (!(parseInt(document.getElementById('vacationDays').value) > 0) || localStorage.getItem(URLOP_HINT_SEEN_KEY)) return;
+  document.getElementById('urlopHint').open = true;
+  localStorage.setItem(URLOP_HINT_SEEN_KEY, '1');
+}
+
+/* Прапорці переходу нічної зміни: у даних місяця це true/false (в інших полів — рядок value). */
+const CARRY_IDS = new Set(['nightCarryOut', 'nightCarryIn']);
+const isCarryOn = id => { const el = document.getElementById(id); return !!el.checked && !el.disabled; };
+
+function collectMonthData(data = {}) {
+  document.querySelectorAll('input, select').forEach(el => {
+    if (isMonthField(el) && el.id !== BONUS_SELECT_ID) data[el.id] = CARRY_IDS.has(el.id) ? isCarryOn(el.id) : el.value;
+  });
+  data.bonusTotalPct = selectedBonusPct();
+  return data;
+}
+
+/* ПРЕМІЯ. Форма має один вибір (обраний відсоток; у записі місяця — число bonusTotalPct).
+   legacyBonus ≠ null — відкрито старий місяць (без bonusTotalPct), який ще не змінювали: він рахується двома
+   старими відсотками, як раніше. Перша зміна місяця або збереження переводить його на вибраний відсоток. */
+const BONUS_SELECT_ID = 'bonusTotalPctSelect';
+const LEGACY_BONUS_FIELDS = ['presencePctSelect', 'bonusPctSelect'];
+let legacyBonus = null;      // { quality, presence }
+
+const selectedBonusPct = () => parseFloat(document.getElementById(BONUS_SELECT_ID).value) || 0;
+const showBonusHint = on => document.getElementById('bonusConvertedHint').classList.toggle('hidden', !on);
+
+function setBonusForm(selected) {
+  legacyBonus = null;
+  document.getElementById(BONUS_SELECT_ID).value = String(selected);
+  showBonusHint(false);
+}
+
+/* Старий запис: відсотки читаються з тими самими значеннями за замовчуванням, що й раніше; у вибір
+   ставиться їхня сума плюс зменшення за L4 цього місяця (не більше 15). */
+function openLegacyBonus(d) {
+  const l4 = parseInt(d.l4Days) || 0;
+  const quality = d.bonusPctSelect === undefined ? 10 : (parseFloat(d.bonusPctSelect) || 0);
+  const presence = d.presencePctSelect === undefined ? (l4 > 0 ? (l4 <= 2 ? 2.5 : 0) : 5) : (parseFloat(d.presencePctSelect) || 0);
+  const selected = Math.min(15, quality + presence + l4BonusCut(l4));
+  setBonusForm(selected);
+  legacyBonus = { quality, presence };
+  showBonusHint(effectiveBonusPct(selected, l4) !== quality + presence);
+}
+
+/* Користувач змінює місяць: далі рахуємо за вибраним відсотком. Підказка зникає, коли відсоток вибрали самі. */
+function leaveLegacyBonus(changedId) {
+  legacyBonus = null;
+  if (changedId === BONUS_SELECT_ID) showBonusHint(false);
+}
+
+/* Старі поля вже збереженого запису переносимо в нову копію (їх читає веб-версія); у нові записи не додаємо. */
+function keptLegacyBonusFields(prev) {
+  return Object.fromEntries(LEGACY_BONUS_FIELDS.filter(k => prev && prev[k] !== undefined).map(k => [k, prev[k]]));
+}
+
+function setCarryIn(on, auto = false) {
+  document.getElementById('nightCarryIn').checked = on;
+  document.getElementById('nightCarryInHint').classList.toggle('hidden', !auto);
+}
+
+/* Дані збереженого місяця акаунта: з хмари, а якщо там немає (чи немає мережі) — з локальної копії. */
+async function savedCloudMonth(uid, id) {
+  return (await getCachedMonths()).find(d => d.id === id)?.data || loadMonthCache(localStorage, uid, id)?.data;
+}
+
+/* Позначку переходу поставили, коли наступний місяць уже збережений без «+6 год»: підказуємо, сам місяць не змінюємо. */
+const needsNextCarryIn = (data, next) => data.nightCarryOut === true && !!next && next.nightCarryIn !== true;
+
+/* Цю підказку показуємо не частіше разу для пари місяців за сеанс роботи застосунку: true — показати зараз. */
+const carryInWarned = new Set();
+function takeNextCarryInWarning(monthVal, data, next) {
+  const pair = `${monthVal}>${shiftMonthId(monthVal, -1)}`;
+  if (!needsNextCarryIn(data, next) || carryInWarned.has(pair)) return false;
+  carryInWarned.add(pair);
+  return true;
+}
+
+/* Лише для ще не збереженого місяця: попередній місяць закінчився нічною зміною → вмикаємо «+6 год». */
+function autoNightCarryIn(prevData) {
+  if (prevData && prevData.nightCarryOut === true) setCarryIn(true, true);
 }
 
 const SCHED_IDS = ['morningShifts', 'afternoonShifts', 'nightShifts', 'vacationDays', 'bloodDonationDays', 'l4MissedShifts'];
@@ -217,6 +397,7 @@ async function handleAuthState(user) {
   document.getElementById('auth-container').classList.toggle('hidden', isPremium);
   document.getElementById('sync-container').classList.toggle('hidden', !isPremium);
   document.querySelectorAll('[data-cloud-only]').forEach(el => el.classList.toggle('hidden', !isPremium));
+  if (!user) showLoginScreen();
   await loadProfile();
   if (user) {
     document.getElementById('user-email-display').innerText = "👤 " + user.email;
@@ -232,15 +413,13 @@ async function handleAuthState(user) {
 function fillFrom(d) {
   clearInputs();
   document.querySelectorAll('input, select').forEach(el => {
-    if (!NON_MONTH_IDS.has(el.id) && d[el.id] !== undefined) {
+    if (isMonthField(el) && !CARRY_IDS.has(el.id) && d[el.id] !== undefined) {
       el.value = d[el.id];
     }
   });
-  if (d.bonusPctSelect === undefined) document.getElementById('bonusPctSelect').value = "10";
-  if (d.presencePctSelect === undefined) {
-    const l4 = parseInt(d.l4Days) || 0;
-    document.getElementById('presencePctSelect').value = l4 > 0 ? (l4 <= 2 ? "2.5" : "0") : "5";
-  }
+  document.getElementById('nightCarryOut').checked = d.nightCarryOut === true;
+  setCarryIn(d.nightCarryIn === true);
+  if (hasBonusTotal(d)) setBonusForm(d.bonusTotalPct); else openLegacyBonus(d);
 }
 
 async function handleSyncUp() {
@@ -250,14 +429,16 @@ async function handleSyncUp() {
   if (navigator.onLine === false) return showToast(dict[currentLang].toastSaveOffline);   // setDoc без мережі висить без відповіді
   const saveBtns = document.querySelectorAll('[data-sync-up]');
   saveBtns.forEach(b => { b.disabled = true; });
-  const data = { updatedAt: new Date().toISOString() };
-  document.querySelectorAll('input, select').forEach(el => {
-    if(!NON_MONTH_IDS.has(el.id)) data[el.id] = el.value;
-  });
+  const data = collectMonthData({ updatedAt: new Date().toISOString() });
   try {
     await withTimeout(setDoc(doc(db, "users", auth.currentUser.uid, "months", monthVal), data, { merge: true }), SAVE_TIMEOUT_MS());
-    saveMonthCache(localStorage, auth.currentUser.uid, monthVal, data);
+    const kept = keptLegacyBonusFields(loadMonthCache(localStorage, auth.currentUser.uid, monthVal)?.data);   // у хмарі їх лишає merge
+    saveMonthCache(localStorage, auth.currentUser.uid, monthVal, { ...kept, ...data });
+    if (legacyBonus && document.getElementById('monthSelect').value === monthVal) { setBonusForm(data.bonusTotalPct); calculateSalary(); }
     showToast(dict[currentLang].toastSaveCloud); monthsCollectionCache = null;
+    const uid = auth.currentUser.uid;
+    const next = await withTimeout(savedCloudMonth(uid, shiftMonthId(monthVal, -1)), SAVE_TIMEOUT_MS()).catch(() => null);
+    if (takeNextCarryInWarning(monthVal, data, next)) showToast(dict[currentLang].toastSaveCloud + '\n' + dict[currentLang].toastNextCarryIn, 8000);
     await updateL4Cache(monthVal);
   } catch (error) {
     // таймаут = немає зв'язку з хмарою (запис міг бути в черзі Firestore, повторне збереження безпечне: merge)
@@ -268,17 +449,64 @@ async function handleSyncUp() {
 
 document.querySelectorAll('[data-sync-up]').forEach(b => b.addEventListener('click', handleSyncUp));
 
-document.getElementById('btn-login').addEventListener('click', async () => {
+/* ВХІД. Поля стоять у формі з autocomplete — так їх бачать менеджери паролів. Форма нікуди не відправляється
+   (preventDefault; CSP: form-action 'none'). Пароль застосунок не зберігає; запам'ятовуються лише адреси (js/emails.js). */
+async function login() {
   if (!(await initCloud())) return showToast(dict[currentLang].toastOffline);
-  try { await signInWithEmailAndPassword(auth, document.getElementById('email').value, document.getElementById('password').value); }
-  catch (e) { showToast(dict[currentLang].toastLoginErr + authMsg(e)); }
-});
+  const email = document.getElementById('email').value;
+  try {
+    await signInWithEmailAndPassword(auth, email, document.getElementById('password').value);
+    rememberEmail(localStorage, email); renderKnownEmails();
+  } catch (e) { showToast(dict[currentLang].toastLoginErr + authMsg(e)); }
+}
+
+document.getElementById('loginForm').addEventListener('submit', e => { e.preventDefault(); return login(); });   // кнопка «Увійти» та Enter
 
 document.getElementById('btn-register').addEventListener('click', async () => {
   if (!(await initCloud())) return showToast(dict[currentLang].toastOffline);
-  try { await createUserWithEmailAndPassword(auth, document.getElementById('email').value, document.getElementById('password').value); showToast(dict[currentLang].toastRegOk); }
-  catch (e) { showToast(dict[currentLang].toastRegErr + authMsg(e)); }
+  const email = document.getElementById('email').value, password = document.getElementById('password');
+  password.setAttribute('autocomplete', 'new-password');            // менеджер паролів сприймає його як новий пароль
+  try {
+    await createUserWithEmailAndPassword(auth, email, password.value);
+    rememberEmail(localStorage, email); renderKnownEmails();
+    showToast(dict[currentLang].toastRegOk);
+  } catch (e) { showToast(dict[currentLang].toastRegErr + authMsg(e)); }
+  finally { password.setAttribute('autocomplete', 'current-password'); }
 });
+
+/* Екран входу (старт гостя й вихід з акаунта): порожній пароль і остання адреса в полі. */
+function showLoginScreen() {
+  const [last] = readKnownEmails(localStorage);
+  if (last) document.getElementById('email').value = last;
+  document.getElementById('password').value = '';
+  renderKnownEmails();
+}
+
+/* Чипи — усі запам'ятовані адреси, крім тієї, що зараз у полі (стерли поле — видно й останню, її теж можна забути). */
+function renderKnownEmails() {
+  const current = normalizeEmail(document.getElementById('email').value);
+  const others = readKnownEmails(localStorage).filter(email => email !== current);
+  document.getElementById('knownEmails').classList.toggle('hidden', others.length === 0);
+  document.getElementById('knownEmailsList').replaceChildren(...others.map(emailChip));
+}
+
+function emailChip(email) {
+  const make = (tag, className, text) => { const el = document.createElement(tag); el.className = className; el.textContent = text; return el; };
+  const chip = make('div', 'mail-chip', ''), pick = make('button', 'mail-pick', email), forget = make('button', 'mail-forget', '×');
+  pick.type = 'button'; forget.type = 'button';
+  forget.setAttribute('aria-label', dict[currentLang].ariaForgetEmail);
+  pick.addEventListener('click', () => {
+    document.getElementById('email').value = email;
+    renderKnownEmails();
+    const password = document.getElementById('password');
+    if (password.focus) password.focus();
+  });
+  forget.addEventListener('click', () => { forgetEmail(localStorage, email); renderKnownEmails(); });
+  chip.appendChild(pick); chip.appendChild(forget);
+  return chip;
+}
+
+document.getElementById('email').addEventListener('input', renderKnownEmails);
 
 /* СКИДАННЯ ПАРОЛЯ: лист надсилає Firebase. Відповідь користувачу однакова, чи існує акаунт
    (не розкриваємо, які email зареєстровані); між запитами — пауза, щоб не засипати скриньку. */
@@ -336,6 +564,9 @@ async function loadCloudData() {
       if (!snap.data().scheduleDays) document.getElementById('scheduleDays').value = defaultSched;
     } else {
       clearInputs(); applyProfileToMain();
+      const prev = await savedCloudMonth(uid, shiftMonthId(monthVal, 1));
+      if (currentReq !== requestCounter) return;
+      autoNightCarryIn(prev);
     }
     updateVisibility(); await autoFillUrlopBonus(monthVal);
     if (currentReq !== requestCounter) return;
@@ -367,11 +598,10 @@ function saveLocalGuestData() {
   if (auth.currentUser) return;
   const monthVal = document.getElementById('monthSelect').value;
   if (!monthVal) return;
-  const data = {};
-  document.querySelectorAll('input, select').forEach(el => {
-    if(!NON_MONTH_IDS.has(el.id)) data[el.id] = el.value;
-  });
-  localStorage.setItem(`guest_month_${monthVal}`, JSON.stringify(data));
+  const key = `guest_month_${monthVal}`;
+  let prev = null;
+  try { prev = JSON.parse(localStorage.getItem(key)); } catch (e) { /* пошкоджений запис — замінюється */ }
+  localStorage.setItem(key, JSON.stringify({ ...keptLegacyBonusFields(prev), ...collectMonthData() }));
 }
 
 function loadLocalGuestData() {
@@ -382,17 +612,20 @@ function loadLocalGuestData() {
     try { fillFrom(JSON.parse(saved)); } catch(e) { clearInputs(); applyProfileToMain(); }
   } else {
     clearInputs(); applyProfileToMain();
+    autoNightCarryIn(readGuestRecords(localStorage)[shiftMonthId(monthVal, 1)]);
   }
   updateVisibility();
 }
 
 function clearInputs() {
+  closeUrlopHint();
   document.querySelectorAll('input[type=number]').forEach(el => {
     if(el.id !== 'scheduleDays' && el.id !== 'profBaseSalary' && el.id !== 'baseSalary') el.value = '';
   });
   document.getElementById('extraBonus').value = '';
-  document.getElementById('bonusPctSelect').value = "10";
-  document.getElementById('presencePctSelect').value = "5";
+  setBonusForm(15);
+  document.getElementById('nightCarryOut').checked = false;
+  setCarryIn(false);
   const monthVal = document.getElementById('monthSelect').value;
   if(monthVal) document.getElementById('scheduleDays').value = stateDaysFor(monthVal);
 }
@@ -400,16 +633,13 @@ function clearInputs() {
 function initMonths() {
   const select = document.getElementById('monthSelect');
   const currentVal = select.value; select.innerHTML = '';
-  const now = new Date(); const currentYear = now.getFullYear(); const currentMonth = now.getMonth();
   const dNames = dict[currentLang].monthNames;
-  for(let i = 1; i >= -11; i--) {
-    let d = new Date(currentYear, currentMonth + i, 1);
-    let y = d.getFullYear(); let m = d.getMonth();
-    let val = y + "-" + String(m + 1).padStart(2, '0');
-    let opt = document.createElement('option'); opt.value = val; opt.text = dNames[m] + " " + y;
+  const months = monthList();
+  for (const { id, year, monthIdx } of months) {
+    let opt = document.createElement('option'); opt.value = id; opt.text = dNames[monthIdx] + " " + year;
     select.appendChild(opt);
   }
-  select.value = currentVal || (currentYear + "-" + String(currentMonth + 1).padStart(2, '0'));
+  select.value = currentVal || months.find(m => m.offset === 0).id;
 }
 
 /* ВІДПУСКНІ: підготовка даних з хмари (сам алгоритм — у calc.js) */
@@ -470,8 +700,13 @@ async function updateL4Cache(currentMonthVal) {
       if (targetMonths.includes(docObj.id)) {
         const data = docObj.data;
         const pBase = Math.max(0, parseFloat(data.baseSalary) || userProfile.baseSalary);
-        let pPct = parseFloat(data.bonusPctSelect); if (isNaN(pPct)) pPct = 10;
-        let pPPct = parseFloat(data.presencePctSelect); if (isNaN(pPPct)) pPPct = parseInt(data.l4Days) > 0 ? 0 : 5;
+        let pPct, pPPct;
+        if (hasBonusTotal(data)) {
+          ({ quality: pPct, presence: pPPct } = bonusSplit(data.bonusTotalPct, parseInt(data.l4Days) || 0));
+        } else {
+          pPct = parseFloat(data.bonusPctSelect); if (isNaN(pPct)) pPct = 10;
+          pPPct = parseFloat(data.presencePctSelect); if (isNaN(pPPct)) pPPct = parseInt(data.l4Days) > 0 ? 0 : 5;
+        }
         const mS = Math.max(0, parseInt(data.morningShifts) || 0);
         const aS = Math.max(0, parseInt(data.afternoonShifts) || 0);
         const nS = Math.max(0, parseInt(data.nightShifts) || 0);
@@ -487,8 +722,8 @@ async function updateL4Cache(currentMonthVal) {
           morningShifts: mS, nightShifts: nS, overtimeMorningShifts: overM, overtimeNightShifts: overN,
           weekendDays: wknd, overtimeDays: over, vacDays: 0, dailyUrlopBonus: 0, extraBonus: 0,
           bloodDonationDays: 0, l4Days: 0, isPremium: false,
-          isUnder26: userProfile.under26 === 'yes', ppkActive: userProfile.ppk === 'yes', insuranceActive: userProfile.insurance === 'yes',
-          qualityBonusPct: pPct, presenceBonusPct: pPPct, year: pYear
+          isUnder26: userProfile.under26 === 'yes', ppkActive: userProfile.ppk === 'yes', insuranceActive: userProfile.insurance === 'yes', extraDeductionAmount: deductionOf(userProfile),
+          qualityBonusPct: pPct, presenceBonusPct: pPPct, year: pYear, nightHoursAdjust: nightHoursAdjustOf(data)
         });
         totalNetBase += (res.gross * (1 - CONFIG.ZUS)); monthsFound++;
       }
@@ -506,6 +741,8 @@ function calculateSalary() {
   const stateDays = getNormHours(cYear, cMonthIdx) / 8;
   let baseSalary = Math.max(0, parseFloat(document.getElementById('baseSalary').value) || userProfile.baseSalary);
   const schedInput = document.getElementById('scheduleDays');
+  const bonusL4Days = Math.max(0, parseInt(document.getElementById('l4Days').value) || 0);   // як у записі місяця, без огляду на PRO
+  const split = bonusSplit(selectedBonusPct(), bonusL4Days);
   const inputs = {
     baseSalary, stateDays, year: cYear,
     schedDays: parseInt(schedInput.value) || stateDays,
@@ -521,12 +758,14 @@ function calculateSalary() {
     extraBonus: Math.max(0, parseFloat(document.getElementById('extraBonus').value) || 0),
     bloodDonationDays: isPremium ? Math.max(0, parseInt(document.getElementById('bloodDonationDays').value) || 0) : 0,
     l4Days: isPremium ? Math.max(0, parseInt(document.getElementById('l4Days').value) || 0) : 0,
-    qualityBonusPct: parseFloat(document.getElementById('bonusPctSelect').value) || 0,
-    presenceBonusPct: parseFloat(document.getElementById('presencePctSelect').value) || 0,
+    qualityBonusPct: legacyBonus ? legacyBonus.quality : split.quality,
+    presenceBonusPct: legacyBonus ? legacyBonus.presence : split.presence,
     isUnder26: userProfile.under26 === 'yes',
     ppkActive: userProfile.ppk === 'yes',
     insuranceActive: userProfile.insurance === 'yes',
-    isPremium, l4DailyRateCached: window.cachedL4DailyRate
+    extraDeductionAmount: deductionOf(userProfile),
+    isPremium, l4DailyRateCached: window.cachedL4DailyRate,
+    nightHoursAdjust: nightHoursAdjustOf({ nightCarryOut: isCarryOn('nightCarryOut'), nightCarryIn: isCarryOn('nightCarryIn') })
   };
   inputs.regWorkedDays = inputs.morningShifts + inputs.afternoonShifts + inputs.nightShifts;
   const res = compute(inputs);
@@ -537,15 +776,15 @@ function calculateSalary() {
   const net = res.net - extraPit;
   if (inputs.bloodDonationDays > 0) document.getElementById('bloodBonus').value = res.autoDailyBlood.toFixed(2);
   updateUI(res.gross, net);
-  const totalNightMinutes = Math.round(((res.totalMorningShifts * (10/60)) + (res.totalNightShifts * 8)) * 60);
+  const adj = inputs.nightHoursAdjust;
+  document.getElementById('infoNightCarryVal').innerText = adj > 0 ? `+${adj}` : adj < 0 ? `−${-adj}` : '0';
+  const totalNightMinutes = Math.round(((res.totalMorningShifts * (10/60)) + Math.max(0, res.totalNightShifts * 8 + adj)) * 60);
   const nHours = Math.floor(totalNightMinutes / 60); const nMins = totalNightMinutes % 60;
   document.getElementById('infoNightHours').innerText = nHours > 0 ? `${nHours} ${dict[currentLang].hoursShort} ${nMins} ${dict[currentLang].minsShort}` : `${nMins} ${dict[currentLang].minsShort}`;
-  document.getElementById('infoPresencePct').innerText = res.presenceBonusPct + '%';
-  document.getElementById('infoQualityPct').innerText = res.qualityBonusPct + '%';
+  showBonusRow(res.presenceBonusPct + res.qualityBonusPct, selectedBonusPct(), bonusL4Days);
   document.getElementById('infoNightShiftsCount').innerText = res.totalNightShifts;
   setFormatSum('infoBasePayVal', res.adjustedBase);
-  setFormatSum('infoPresenceBonusSum', res.presenceBonusAmount, true);
-  setFormatSum('infoQualityBonusSum', res.qualityBonusAmount, true);
+  setFormatSum('infoBonusSum', res.bonusAmount, true);
   setFormatSum('infoExtraBonusSum', res.extraBonus, true);
   setFormatSum('infoNightTimeSum', res.totalNightTimePay);
   setFormatSum('infoNightShiftSum', res.totalNightShiftPay);
@@ -555,7 +794,6 @@ function calculateSalary() {
   setFormatSum('infoVacationSum', res.totalUrlopBonus);
   setFormatSum('infoBloodSum', res.bloodDonationPay);
   setFormatSum('infoL4Sum', res.l4Pay);
-  setFormatSum('infoLaundrySum', res.laundryAllowance, false);
   document.getElementById('infoTotalBrutto').innerText = formatPLN(res.gross);
   document.getElementById('infoTotalNetto').innerText = formatPLN(net);
   document.getElementById('rowPitExtra').classList.toggle('hidden', !(extraPit > 0));
@@ -570,6 +808,50 @@ function calculateSalary() {
   document.getElementById('infoTotalDaysVal').innerText = res.totalEngagedDays;
   document.getElementById('infoSchedVal').innerText = inputs.schedDays;
   document.getElementById('infoNightTariffVal').innerText = formatPLN(res.nightTariff) + dict[currentLang].perHour;
+  const wage = minWageInfo(cYear);
+  const wageText = wage.source === 'official' ? ''
+    : (wage.source === 'user' ? dict[currentLang].minWageUser : dict[currentLang].minWageUnknown)
+      .replace('{year}', cYear).replace('{sum}', formatPLN(wage.value)).replace('{knownYear}', wage.knownYear);
+  document.getElementById('minWageNote').classList.toggle('hidden', !wageText);
+  document.getElementById('minWageNote').innerText = wageText;
+  showBreakdown(res, inputs, extraPit);
+}
+
+/* Згорнутий список відрахувань унизу «Деталей». ZUS, NFZ і PIT показуються завжди, решта — лише ненульові. */
+function showBreakdown(res, inputs, extraPit) {
+  const b = deductionsBreakdown(res, inputs, extraPit);
+  const put = (id, text) => { document.getElementById(id).innerText = text; };
+  const row = (name, value, always = false) => {
+    document.getElementById('ded' + name).classList.toggle('hidden', !always && value === 0);
+    put(`ded${name}Val`, formatPLN(value));
+  };
+  put('deductionsTitle', dict[currentLang].dedTitle.replace('{sum}', formatPLN(b.total)));
+  row('ZusEmerytalne', b.rows.zusEmerytalne, true);
+  row('ZusRentowe', b.rows.zusRentowe, true);
+  row('ZusChorobowe', b.rows.zusChorobowe, true);
+  row('Nfz', b.rows.nfz, true);
+  row('Pit', b.rows.pit, true);
+  put('dedPitLabel', inputs.isUnder26 ? dict[currentLang].dedPitExempt : dict[currentLang].dedPit);
+  if (inputs.isUnder26) put('dedPitVal', '');          // «— 0» уже в назві рядка
+  row('PitExtra', b.rows.pitExtra);
+  row('Ppk', b.rows.ppk);
+  row('BenefitZus', b.rows.benefitZus);
+  row('BenefitTax', b.rows.benefitTax);
+  row('Extra', b.rows.deduction);
+  row('Laundry', b.laundry);
+  put('dedLaundryVal', '+' + formatPLN(b.laundry));
+  put('dedTotalVal', formatPLN(b.total));
+  put('dedCheckVal', `${formatPLN(res.gross)} − ${formatPLN(b.total)} + ${formatPLN(b.laundry)} = ${formatPLN(res.net - extraPit)}`);
+  document.getElementById('dedRoundNote').classList.toggle('hidden', !(b.roundingDiffers || b.checkDiffers));
+}
+
+/* «Деталі»: «Премія 15 %», а коли L4 зменшив обраний відсоток — ще «(15 % − 2,5 % за L4)». */
+function showBonusRow(pct, selected, l4Days) {
+  const fmt = v => String(v).replace('.', ',') + dict[currentLang].pctSign;
+  const reduced = pct !== selected && pct === effectiveBonusPct(selected, l4Days);
+  document.getElementById('infoBonusPct').innerText = fmt(pct);
+  document.getElementById('infoBonusL4').innerText = reduced
+    ? dict[currentLang].infoBonusL4.replace('{selected}', fmt(selected)).replace('{cut}', fmt(l4BonusCut(l4Days))) : '';
 }
 
 function setFormatSum(id, val, isHighlight = false) {
@@ -585,8 +867,12 @@ function updateUI(g, n) {
 
 const appBody = document.getElementById('app-body');
 
+/* Поля, що очищаються від дотику: числові та позначені data-clear-on-focus. Значення атрибута — що показати,
+   коли користувач стер таке поле й вийшов (відрахування: «0»; мінімалка: порожньо = видалити). */
+const clearsOnFocus = el => el.tagName === 'INPUT' && !el.readOnly && (el.type === 'number' || el.hasAttribute('data-clear-on-focus'));
+
 appBody.addEventListener('focusin', e => {
-  if (e.target.tagName === 'INPUT' && e.target.type === 'number' && !e.target.readOnly) {
+  if (clearsOnFocus(e.target)) {
     e.target.dataset.prevVal = e.target.value; e.target.value = '';
     delete e.target.dataset.edited;
   }
@@ -599,13 +885,15 @@ appBody.addEventListener('input', e => {
 });
 
 appBody.addEventListener('focusout', e => {
-  if (e.target.tagName === 'INPUT' && e.target.type === 'number' && !e.target.readOnly) {
+  if (clearsOnFocus(e.target)) {
     if (e.target.value === '' && e.target.dataset.prevVal !== undefined) {
       if (!e.target.dataset.edited) {
         e.target.value = e.target.dataset.prevVal;               // просто торкнулись і вийшли — повертаємо як було
       } else if (e.target.id === 'baseSalary') {
         e.target.value = userProfile.baseSalary;                 // порожня ставка = ставка з профілю (так рахує calculateSalary)
         saveLocalGuestData();
+      } else if (e.target.type !== 'number' && e.target.getAttribute('data-clear-on-focus')) {
+        e.target.value = e.target.getAttribute('data-clear-on-focus');
       }
     }
     if (e.target.id === 'scheduleDays' && !e.target.value) {
@@ -613,23 +901,19 @@ appBody.addEventListener('focusout', e => {
       calculateSalary();
     }
     delete e.target.dataset.prevVal; delete e.target.dataset.edited;
+    if (e.target.id === 'profExtraDeduction') settleDeduction();   // після повернення попереднього значення чи «0»
   }
 });
 
 appBody.addEventListener('input', e => {
   const id = e.target.id;
-  // Автозміна премії за присутність при введенні L4
-  if (id === 'l4Days') {
-    const l4 = parseInt(e.target.value) || 0;
-    const pSel = document.getElementById('presencePctSelect');
-    if (l4 === 0) pSel.value = "5";
-    else if (l4 <= 2) pSel.value = "2.5";
-    else pSel.value = "0";
-  }
-  if (id === 'monthSelect' || NON_MONTH_IDS.has(id)) return;
+  if (id === 'monthSelect' || !isMonthField(e.target)) return;
+  leaveLegacyBonus(id);
+  if (id === 'nightCarryIn') document.getElementById('nightCarryInHint').classList.add('hidden');   // далі це вибір користувача
   if (SCHED_IDS.includes(id)) syncSchedule();
   calculateSalary(); saveLocalGuestData();
   if (id === 'vacationDays') {
+    revealUrlopHintOnce();
     autoFillUrlopBonus(document.getElementById('monthSelect').value).then(() => { calculateSalary(); saveLocalGuestData(); });
   }
 });
@@ -639,10 +923,19 @@ appBody.addEventListener('change', e => {
   if (id === 'monthSelect') {
     document.getElementById('scheduleDays').value = stateDaysFor(e.target.value);
     if (auth.currentUser) loadCloudData(); else { loadLocalGuestData(); calculateSalary(); }
-  } else if (!NON_MONTH_IDS.has(id)) {
+  } else if (isMonthField(e.target)) {
+    leaveLegacyBonus(id);
     calculateSalary(); saveLocalGuestData();
+    if (id === 'nightCarryOut' && !auth.currentUser) warnGuestNextCarryIn();
   }
 });
+
+/* Гість зберігається одразу при редагуванні, тож підказуємо в момент, коли вмикають перехід. */
+function warnGuestNextCarryIn() {
+  const monthVal = document.getElementById('monthSelect').value;
+  const next = readGuestRecords(localStorage)[shiftMonthId(monthVal, -1)];
+  if (takeNextCarryInWarning(monthVal, { nightCarryOut: isCarryOn('nightCarryOut') }, next)) showToast(dict[currentLang].toastNextCarryIn, 8000);
+}
 
 document.addEventListener('click', e => {
   const p = e.target.closest('[data-page]'); if (p) { switchPage(Number(p.dataset.page)); return; }
@@ -653,7 +946,6 @@ document.addEventListener('click', e => {
     if (i >= 0 && i < s.options.length) { s.selectedIndex = i; s.dispatchEvent(new Event('change', { bubbles: true })); } }
 });
 
-document.getElementById('auth-form').addEventListener('submit', e => e.preventDefault());
 // Замість inline onchange (потрібно для CSP без 'unsafe-inline')
 document.getElementById('langSelect').addEventListener('change', e => window.setLang(e.target.value));
 document.getElementById('themeSelect').addEventListener('change', e => window.setTheme(e.target.value));
@@ -780,6 +1072,7 @@ const updateBanner = document.getElementById('update-banner');
 window.addEventListener('salary:update-ready', () => updateBanner.classList.remove('hidden'));
 document.getElementById('btn-update').addEventListener('click', () => location.reload());
 document.getElementById('btn-update-later').addEventListener('click', () => updateBanner.classList.add('hidden'));
+setUserMinWages(readUserMinWages(localStorage));        // до першого розрахунку
 setTheme(localStorage.getItem('theme') || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 window.setLang(currentLang);
 switchPage(1);
