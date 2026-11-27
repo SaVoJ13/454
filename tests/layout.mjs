@@ -23,7 +23,12 @@ assert.equal((tail.match(/<button/g) || []).length, 1, 'після «Детал�
 // для гостей приховано
 for (const m of html.matchAll(/<div class="([^"]*)" data-cloud-only>/g)) assert.ok(m[1].split(' ').includes('hidden'), 'data-cloud-only без .hidden');
 assert.equal((html.match(/data-cloud-only/g) || []).length, 2, 'очікується 2 контейнери з data-cloud-only');
-assert.ok(profile.includes('id="btn-sync-down"') && profile.includes('id="btn-logout"'), 'у профілі мають лишитись «Завантажити» та «Вийти»');
+// з 1.20.0 «Завантажити з хмари» і «Вийти з акаунта» — у панелі хмари (кнопка хмари в шапці); у профілі блоків входу й синхронізації немає
+const sheet = html.slice(at('cloudSheet'), html.indexOf('</section>', at('cloudSheet')));
+assert.ok(sheet.includes('id="btn-sync-down"') && sheet.includes('id="btn-logout"'), 'у панелі хмари мають бути «Завантажити з хмари» та «Вийти з акаунта»');
+assert.ok(sheet.includes('id="auth-container"') && sheet.includes('id="sync-container"'), 'вхід і синхронізація — у панелі хмари');
+for (const id of ['auth-container', 'sync-container', 'loginForm', 'btn-sync-down', 'btn-logout', 'btn-login']) assert.ok(!profile.includes(`id="${id}"`), `у профілі не має бути #${id}`);
+assert.ok(html.indexOf('id="cloudSheet"') > html.indexOf('</main>'), 'панель хмари — поза <main> (над усіма вкладками)');
 assert.equal((html.match(/\bid="btn-sync-up/g) || []).length, 2, 'дублікати id кнопок збереження');
 
 
@@ -37,4 +42,4 @@ assert.match(app, new RegExp(`currentActivePage < ${viewIds.length}\\)`), `св�
 
 assert.equal((app.match(/\.seg, \.chart-host'\)\) return;/g) || []).length, 2, 'touchstart і touchend мають ігнорувати .chart-host (графіки не гортають сторінку)');
 
-console.log('OK: розкладка (збереження місяця: калькулятор внизу + деталі, не в профілі)');
+console.log('OK: розкладка (збереження місяця: калькулятор внизу + деталі, не в профілі; вхід і синхронізація — у панелі хмари)');

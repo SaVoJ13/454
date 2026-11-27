@@ -200,7 +200,12 @@ assert.equal(getEl('bonusTotalPctSelect').value, '12.5'); assert.equal(hintShown
 
 // 6d. «+6 год» у гостя: один раз для пари місяців
 const toast = () => getEl('toast').innerText;
-const carry = async on => { getEl('nightCarryOut').checked = on; await fire(body, 'change', getEl('nightCarryOut')); };
+const carryOn = () => getEl('nightCarryOut').attrs['aria-checked'] === 'true';
+const carry = async on => {                                               // дотик до повзунка
+  assert.equal(getEl('nightCarryOut').disabled, false, 'є нічна зміна — повзунок активний');
+  if (carryOn() !== on) await fire(getEl('nightCarryOut'), 'click');
+  assert.equal(carryOn(), on);
+};
 const carryToasts = async () => { getEl('toast').innerText = ''; await carry(true); const t = toast(); await carry(false); return t; };
 await select(plainId); await type('nightShifts', '2');                    // наступний місяць (ids[6]) збережений
 assert.equal(await carryToasts(), dict.uk.toastNextCarryIn, 'перший раз — показуємо');
@@ -223,11 +228,12 @@ assert.equal(hintShown(), true);
 const accRes = (d, id) => compute(inputsFromSaved(d, id, profile));
 assert.equal(getEl('infoBonusSum').innerText, formatPLN(accRes(clamp, oldId).bonusAmount), 'акаунт: до збереження — як раніше');
 assert.equal(writes.length, 0, 'відкриття нічого не записує');
-await type('nightShifts', '1'); getEl('nightCarryOut').checked = true;
+await type('nightShifts', '1'); await carry(true);
 getEl('toast').innerText = '';
 await fire(getEl('btn-sync-up-calc'), 'click'); await sleep(60);
 const saved = writes.at(-1).data;
 assert.strictEqual(saved.bonusTotalPct, 15);
+assert.deepEqual([saved.nightCarryOut, saved.nightCarryIn], [true, false], 'повзунки зберігаються як true / false');
 assert.ok(!('presencePctSelect' in saved) && !('bonusPctSelect' in saved), 'у запис не додаємо старих полів');
 assert.equal(cloud.get(path(oldId)).presencePctSelect, '5', 'merge лишає старі поля');
 const cached = JSON.parse(store.get(`cloud_month_u1_${oldId}`)).data;
