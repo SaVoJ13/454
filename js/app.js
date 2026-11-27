@@ -111,7 +111,8 @@ async function loadProfile() {
         localStorage.setItem(localKey, JSON.stringify(userProfile));
       } else {
         const savedLocal = localStorage.getItem(localKey);
-        if (savedLocal) try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
+        if (!savedLocal) userProfile = NEW_PROFILE();     // у хмарі профілю ще немає й копії теж — як новий: відрахування 0
+        else try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
       }
     } catch(e) {
       const savedLocal = localStorage.getItem(localKey);

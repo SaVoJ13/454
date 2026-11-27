@@ -388,6 +388,7 @@ window.switchPage(1);
 
 // 3g. Вхід в акаунт із тими самими записами в хмарі: ті самі числа; профілі не діють
 for (const [id, d] of Object.entries(records)) cloud.set(`users/u1/months/${id}`, { ...d });
+cloud.set('users/u1/profile/userProfile', { ...profile });   // у хмарі той самий (старий) профіль, що й локальний
 auth.currentUser = { uid: 'u1', email: 'user@example.com' };
 await authCb(auth.currentUser); await sleep(40);
 await select('2026-11'); await select('2026-12');

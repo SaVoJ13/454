@@ -132,6 +132,10 @@ assert.ok(getEl('cloudSyncState').textContent.startsWith(dict.uk.cloudSynced.spl
 assert.match(getEl('cloudSyncState').textContent, /\d{2}:\d{2}$/, 'з часом');
 assert.equal(window.salaryBack(), true, '«Назад» закриває панель'); assert.equal(getEl('cloudSheet').classList.contains('hidden'), true);
 assert.equal(getEl('morningShifts').value, '10', 'поля заповнені з хмари');
+// акаунт без профілю в хмарі й без локальної копії: відрахування 0
+assert.equal(getEl('profExtraDeduction').value, '0,00', 'акаунт без збереженого профілю — відрахування 0');
+assert.equal(getEl('netResult').innerText, new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' })
+  .format(compute(inputsFromSaved(cloud.get(monthPath), month, { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'no', extraDeduction: 0 })).net), 'netto без відрахування');
 assert.ok(store.has(cacheKey), 'після успішного завантаження є локальна копія місяця');
 assert.equal(JSON.parse(store.get(cacheKey)).data.morningShifts, '10');
 
@@ -183,7 +187,9 @@ const profile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' }
 const money = v => new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' }).format(v);
 const seed = { baseSalary: '10500', morningShifts: '16', nightShifts: '4', scheduleDays: '20', bonusPctSelect: '10', presencePctSelect: '5' };
 for (let j = 1; j <= 12; j++) cloud.set(`users/u1/months/2026-${String(j).padStart(2, '0')}`, { ...seed });
+cloud.set('users/u1/profile/userProfile', { ...profile });   // далі — акаунт зі збереженим старим профілем (без extraDeduction)
 await authCb(auth.currentUser);                          // повторний вхід скидає кеш списку місяців
+assert.equal(getEl('profExtraDeduction').value, '36,70', 'збережений старий профіль — як раніше');
 const selectMonth = async id => { getEl('monthSelect').value = id; await fire(getEl('app-body'), 'change', getEl('monthSelect')); await sleep(80); };
 await selectMonth('2026-12');
 const dataOf = id => cloud.get(`users/u1/months/${id}`);

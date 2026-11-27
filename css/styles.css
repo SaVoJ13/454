@@ -177,6 +177,8 @@ body{padding-bottom:calc(148px + env(safe-area-inset-bottom))}
 .switch::after{content:"";position:absolute;left:2px;top:9px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(14,23,38,.3);transition:transform .2s}
 .switch[aria-checked=true]::before{background:var(--primary)}.switch[aria-checked=true]::after{transform:translateX(18px)}
 .switch:disabled{opacity:.4;cursor:default}
+/* темна тема, синій рядок нічної зміни: вимкнена доріжка світліша (--border на --primary-soft майже не видно) */
+[data-theme=dark] .field.sub{--switch-off:#66779e}[data-theme=dark] .field.sub .switch:disabled{opacity:.6}
 
 /* Вкладка «Профіль» */
 .prof{gap:0}

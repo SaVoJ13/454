@@ -111,6 +111,12 @@ assert.match(css, /^input,select,textarea\{font-size:16px\}/m, 'базовий �
 assert.match(rule('.tile-input'), /font-size:20px/, 'числа в плитках — 20 px');
 assert.match(rule('.ctl input,.ctl select'), /font-size:16px/, 'поля калькулятора — 16 px');
 
+// вимкнена доріжка на синьому рядку нічної зміни в темній темі: контраст із тлом не менше 3:1
+const lum = hex => { const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const offTrack = css.match(/\[data-theme=dark\] \.field\.sub\{--switch-off:(#[0-9a-f]{6})\}/)[1];
+const rowBg = css.match(/\[data-theme=dark\]\{[^}]*--primary-soft:(#[0-9a-f]{6})/)[1];
+assert.ok((lum(offTrack) + 0.05) / (lum(rowBg) + 0.05) >= 3, `контраст ${offTrack} на ${rowBg}`);
+
 // ---------- 3. Перший запуск: чиста функція ----------
 const mem = init => { const m = new Map(Object.entries(init)); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), get length() { return m.size; }, key: i => [...m.keys()][i] ?? null }; };
 assert.equal(isFirstRun(mem({})), true, 'порожнє сховище');
