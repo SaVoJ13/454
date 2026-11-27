@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDom, findAll } from './fake-dom.mjs';
+import { fakeCloud } from './fake-cloud.mjs';
 import { readKnownEmails, rememberEmail, forgetEmail, KNOWN_EMAILS_KEY, MAX_KNOWN_EMAILS } from '../js/emails.js';
 
 // 1. Розмітка
@@ -43,26 +44,17 @@ const { getEl, fire, store } = installFakeDom();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { dict } = await import('../js/i18n.js');
 store.set('known_emails', '["old@x.pl"]');
-const calls = [], auth = { currentUser: null };
-let authCb = null, fail = null;
-const enter = kind => async (a, email, password) => {
+const calls = [], fc = fakeCloud();
+const enter = (kind, real) => async (a, email, password) => {
   calls.push({ kind, email, password, autocomplete: getEl('password').getAttribute('autocomplete') });
-  if (fail) throw Object.assign(new Error(fail), { code: fail });
-  a.currentUser = { uid: 'u1', email: email.trim().toLowerCase() };
-  await authCb(a.currentUser);
+  return real(a, email, password);
 };
-const stub = {
-  auth, db: {}, signInWithEmailAndPassword: enter('in'), createUserWithEmailAndPassword: enter('up'),
-  sendPasswordResetEmail: async () => {}, signOut: async a => { a.currentUser = null; await authCb(null); },
-  onAuthStateChanged: (_a, cb) => { authCb = cb; },
-  doc: (_db, ...p) => ({ path: p.join('/') }), collection: (_db, ...p) => ({ path: p.join('/') }),
-  getDoc: async () => ({ exists: () => false }), setDoc: async () => {}, getDocs: async () => ({ forEach() {} })
-};
+const stub = { ...fc.stub, signInWithEmailAndPassword: enter('in', fc.stub.signInWithEmailAndPassword), createUserWithEmailAndPassword: enter('up', fc.stub.createUserWithEmailAndPassword) };
 globalThis.__salaryTest = { cloudLoader: async () => stub };
 console.warn = () => {};
 await import('../js/app.js');
 await sleep(80);
-assert.ok(authCb);
+assert.equal(fc.auth().listeners.length, 1);
 
 const email = getEl('email'), password = getEl('password');
 password.setAttribute('autocomplete', 'current-password');       // як у розмітці (фейковий DOM її не читає)
@@ -96,7 +88,7 @@ assert.equal(email.value, 'new.user@example.com'); assert.equal(password.value, 
 assert.equal(boxHidden(), false); assert.deepEqual(chips(), ['old@x.pl']);
 
 // невдалий вхід нічого не запам'ятовує
-fail = 'auth/invalid-credential'; await fill('wrong@x.pl', SECRET); await submit(); fail = null;
+fc.mode.auth = 'auth/invalid-credential'; await fill('wrong@x.pl', SECRET); await submit(); fc.mode.auth = null;
 assert.deepEqual(known(), ['new.user@example.com', 'old@x.pl']);
 assert.equal(getEl('toast').innerText, dict.uk.toastLoginErr + dict.uk.errInvalidCred);
 
@@ -109,7 +101,7 @@ await fill('reg@x.pl', SECRET); await fire(getEl('btn-register'), 'click');
 assert.deepEqual([calls.at(-1).kind, calls.at(-1).autocomplete], ['up', 'new-password']);
 assert.equal(password.getAttribute('autocomplete'), 'current-password');
 assert.equal(known()[0], 'reg@x.pl'); await logout();
-fail = 'auth/email-already-in-use'; await fill('taken@x.pl', SECRET); await fire(getEl('btn-register'), 'click'); fail = null;
+fc.mode.auth = 'auth/email-already-in-use'; await fill('taken@x.pl', SECRET); await fire(getEl('btn-register'), 'click'); fc.mode.auth = null;
 assert.equal(password.getAttribute('autocomplete'), 'current-password', 'повертається і після помилки');
 assert.ok(!known().includes('taken@x.pl'));
 

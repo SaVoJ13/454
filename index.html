@@ -153,7 +153,6 @@
 <button type="button" class="prof-add" id="btn-profile-add" data-i18n-aria="profileAdd" aria-label="Додати профіль"><svg aria-hidden="true" class="icon"><use href="#i-plus"/></svg></button></div>
 <button type="button" class="info-btn" id="btn-profiles-info" aria-expanded="false" aria-controls="profilesInfo" data-i18n-aria="ariaProfilesInfo" aria-label="Про профілі"><svg aria-hidden="true" class="icon"><use href="#i-info"/></svg></button></div>
 <p class="prof-note hidden" id="profilesInfo" data-i18n="profilesInfo">Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються на цьому телефоні. Щоб зберегти їх у хмарі, натисніть хмаринку вгорі.</p>
-<p class="prof-note hidden" id="profilesSignedIn"></p>
 
 <p class="sec-label" id="secProfileLabel" data-i18n="secProfile">Профіль</p>
 <div class="name-row" id="profileNameRow"><label for="profileName" data-i18n="profileNameLabel">Назва</label><input type="text" id="profileName" maxlength="60" autocomplete="off" data-i18n-ph="profileNamePhNew" placeholder="Напр., Володимир"></div>
@@ -228,7 +227,7 @@
 <div id="auth-container">
 <div class="sheet-ico"><svg aria-hidden="true" class="icon"><use href="#i-cloud"/></svg></div>
 <h2 class="sheet-title" id="cloudOutTitle" data-i18n="cloudOutTitle">Зберігати в хмарі</h2>
-<p class="sheet-text" data-i18n="cloudOutText">Увійдіть, щоб зберігати дані в хмарі й бачити їх на інших пристроях і на сайті.</p>
+<p class="sheet-text" id="cloudOutText">Увійдіть, щоб зберігати дані в хмарі й бачити їх на інших пристроях і на сайті.</p>
 <div class="segmented wide" role="group" data-i18n-aria="ariaAuthMode" aria-label="Вхід або реєстрація"><button type="button" id="authModeLogin" aria-pressed="true" data-i18n="authModeLogin">Вхід</button><button type="button" id="authModeRegister" aria-pressed="false" data-i18n="authModeRegister">Реєстрація</button></div>
 <form id="loginForm" autocomplete="on" novalidate>
 <div class="stack"><label for="email" data-i18n="lblEmail">Email</label><div class="ctl"><input type="email" id="email" name="username" autocomplete="username" placeholder="Email"></div></div>
@@ -237,6 +236,16 @@
 <button type="submit" id="btn-login" class="btn primary" data-i18n="btnLogin">Увійти</button>
 <button type="button" id="btn-register" class="btn primary hidden" data-i18n="btnCreateAccount">Створити акаунт</button>
 <button type="button" id="btn-reset-password" class="link-btn" data-i18n="btnResetPassword">Забули пароль?</button></form>
+<button type="button" id="btn-detach" class="btn hidden" data-i18n="btnLogoutAccount">Вийти з акаунта</button>
+</div>
+<div id="merge-container" class="hidden">
+<div class="sheet-ico"><svg aria-hidden="true" class="icon"><use href="#i-cloud"/></svg></div>
+<h2 class="sheet-title" id="cloudMergeTitle" data-i18n="mergeTitle">Дані є і тут, і в хмарі</h2>
+<p class="sheet-text" id="cloudMergeText"></p>
+<button type="button" id="btn-merge-add" class="btn primary multi" data-i18n="mergeAdd">Додати місяці з телефону, яких немає в хмарі</button>
+<button type="button" id="btn-merge-cloud" class="btn multi" data-i18n="mergeCloud">Залишити лише хмарні</button>
+<button type="button" id="btn-merge-cancel" class="link-btn" data-i18n="profileCancel">Скасувати</button>
+<p class="sheet-note" data-i18n="mergeNote">На телефоні нічого не видаляється. Місяць, що є в обох місцях, береться з хмари.</p>
 </div>
 <div id="sync-container" class="hidden">
 <div class="sheet-ico ok"><svg aria-hidden="true" class="icon"><use href="#i-cloud-ok"/></svg></div>

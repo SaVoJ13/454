@@ -53,7 +53,7 @@ export const dict = {
 };
 
 Object.assign(dict.uk, {
-  profilesTitle: "Профілі", profileDefaultName: "Мій профіль", profileAdd: "Додати профіль", profileRename: "Перейменувати", profileDelete: "Видалити", profileNamePh: "Назва профілю", profileNameSave: "Зберегти", profileCancel: "Скасувати", profileDeleteYes: "Так, видалити", profileDeleteConfirm: "Видалити профіль «{name}» і всі його місяці? Це не можна скасувати.", errProfileName: "Назва від 1 до 30 символів", errProfileDuplicate: "Профіль з такою назвою вже є", profilesSignedIn: "Ви увійшли в акаунт {email}. Локальні профілі доступні після виходу.", profilesNote: "Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються лише на цьому пристрої.", profSettingsTitle: "Налаштування профілю", appVersionLabel: "Версія {v}",
+  profilesTitle: "Профілі", profileDefaultName: "Мій профіль", profileAdd: "Додати профіль", profileRename: "Перейменувати", profileDelete: "Видалити", profileNamePh: "Назва профілю", profileNameSave: "Зберегти", profileCancel: "Скасувати", profileDeleteYes: "Так, видалити", profileDeleteConfirm: "Видалити профіль «{name}» і всі його місяці? Це не можна скасувати.", errProfileName: "Назва від 1 до 30 символів", errProfileDuplicate: "Профіль з такою назвою вже є", profilesNote: "Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються лише на цьому пристрої.", profSettingsTitle: "Налаштування профілю", appVersionLabel: "Версія {v}",
   appTitle: "Калькулятор зарплати", navCalc: "Розрахунок", navDetails: "Деталі", navProfile: "Профіль", navSettings: "Налаштування",
   netHint: "до виплати", secBase: "Основна зарплата", secBase2: "Основна зарплата та бонуси", secNight: "Нічні зміни та вихідні",
   secVac: "Відпускні", secBlood: "Поважна відсутність", secL4: "Лікарняний", secTotals: "Підсумок", secStats: "Параметри місяця",
@@ -65,7 +65,7 @@ Object.assign(dict.uk, {
 });
 
 Object.assign(dict.pl, {
-  profilesTitle: "Profile", profileDefaultName: "Mój profil", profileAdd: "Dodaj profil", profileRename: "Zmień nazwę", profileDelete: "Usuń", profileNamePh: "Nazwa profilu", profileNameSave: "Zapisz", profileCancel: "Anuluj", profileDeleteYes: "Tak, usuń", profileDeleteConfirm: "Usunąć profil „{name}” i wszystkie jego miesiące? Tego nie można cofnąć.", errProfileName: "Nazwa od 1 do 30 znaków", errProfileDuplicate: "Profil o tej nazwie już istnieje", profilesSignedIn: "Zalogowano na konto {email}. Profile lokalne są dostępne po wylogowaniu.", profilesNote: "Każdy profil ma własne miesiące, ustawienia i statystyki. Dane są zapisywane tylko na tym urządzeniu.", profSettingsTitle: "Ustawienia profilu", appVersionLabel: "Wersja {v}",
+  profilesTitle: "Profile", profileDefaultName: "Mój profil", profileAdd: "Dodaj profil", profileRename: "Zmień nazwę", profileDelete: "Usuń", profileNamePh: "Nazwa profilu", profileNameSave: "Zapisz", profileCancel: "Anuluj", profileDeleteYes: "Tak, usuń", profileDeleteConfirm: "Usunąć profil „{name}” i wszystkie jego miesiące? Tego nie można cofnąć.", errProfileName: "Nazwa od 1 do 30 znaków", errProfileDuplicate: "Profil o tej nazwie już istnieje", profilesNote: "Każdy profil ma własne miesiące, ustawienia i statystyki. Dane są zapisywane tylko na tym urządzeniu.", profSettingsTitle: "Ustawienia profilu", appVersionLabel: "Wersja {v}",
   appTitle: "Kalkulator wynagrodzenia", navCalc: "Kalkulator", navDetails: "Szczegóły", navProfile: "Profil", navSettings: "Ustawienia",
   netHint: "do wypłaty", secBase: "Wynagrodzenie podstawowe", secBase2: "Wynagrodzenie i premie", secNight: "Zmiany nocne i weekendy",
   secVac: "Urlop", secBlood: "Nieobecność usprawiedliwiona", secL4: "Zwolnienie L4", secTotals: "Podsumowanie", secStats: "Parametry miesiąca",
@@ -203,4 +203,31 @@ Object.assign(dict.pl, {
   tileRate: "Stawka, zł", tileDeduction: "Potrącenie, zł/mies.", tileDeductionHint: "Np. ubezpieczenie", tileUnder26: "Do 26 lat", tilePpk: "PPK",
   profileDeleteBtn: "Usuń profil", firstTitle: "Witamy!", firstTextA: "Dane są zapisywane na telefonie. Chmura —", firstTextB: "u góry.",
   firstCreate: "Utwórz profil"
+});
+
+/* 1.21.0: свій акаунт для кожного профілю. */
+Object.assign(dict.uk, {
+  cloudConnectText: "Підключіть «{name}» до акаунта, щоб зберігати його в хмарі й бачити на інших пристроях і на сайті.",
+  cloudExpired: "Сеанс акаунта {email} завершено. Увійдіть знову, щоб синхронізувати «{name}».",
+  errTaken: "Цей акаунт уже підключено до профілю «{name}»", errWrongAccount: "Цей профіль підключено до акаунта {email}",
+  toastDataUploaded: "Дані профілю збережено в хмарі", toastConnectErr: "Не вдалося підключити профіль: ",
+  toastLogoutErr: "Не вдалося вийти з акаунта", toastStillLoading: "Місяць ще завантажується — спробуй за мить",
+  mergeTitle: "Дані є і тут, і в хмарі", mergeText: "У хмарі вже є {N} міс., на телефоні — {M} міс.",
+  mergeAdd: "Додати місяці з телефону, яких немає в хмарі", mergeCloud: "Залишити лише хмарні",
+  mergeNote: "На телефоні нічого не видаляється. Місяць, що є в обох місцях, береться з хмари.",
+  profileDeleteCloudConfirm: "Видалити профіль «{name}» з цього телефона? Дані в хмарі акаунта {email} залишаться.",
+  profileRecovered: "Відновлений профіль {n}", cloudSuffix: "хмара", ariaCloudProfile: "Підключено до хмари"
+});
+
+Object.assign(dict.pl, {
+  cloudConnectText: "Połącz „{name}” z kontem, aby zapisywać go w chmurze i widzieć na innych urządzeniach i na stronie.",
+  cloudExpired: "Sesja konta {email} wygasła. Zaloguj się ponownie, aby synchronizować „{name}”.",
+  errTaken: "To konto jest już połączone z profilem „{name}”", errWrongAccount: "Ten profil jest połączony z kontem {email}",
+  toastDataUploaded: "Dane profilu zapisano w chmurze", toastConnectErr: "Nie udało się połączyć profilu: ",
+  toastLogoutErr: "Nie udało się wylogować z konta", toastStillLoading: "Miesiąc się jeszcze wczytuje — spróbuj za chwilę",
+  mergeTitle: "Dane są tu i w chmurze", mergeText: "W chmurze jest już {N} mies., na telefonie — {M} mies.",
+  mergeAdd: "Dodaj miesiące z telefonu, których nie ma w chmurze", mergeCloud: "Zostaw tylko chmurowe",
+  mergeNote: "Na telefonie nic nie jest usuwane. Miesiąc, który jest w obu miejscach, bierzemy z chmury.",
+  profileDeleteCloudConfirm: "Usunąć profil „{name}” z tego telefonu? Dane w chmurze konta {email} zostaną.",
+  profileRecovered: "Przywrócony profil {n}", cloudSuffix: "chmura", ariaCloudProfile: "Połączony z chmurą"
 });

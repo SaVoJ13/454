@@ -6,6 +6,7 @@ import { compute, effectiveBonusPct, bonusSplit, getNormHours, buildVacationEntr
 import { inputsFromSaved } from '../js/pit.js';
 import { monthList, formatPLN } from '../js/utils.js';
 import { installFakeDom } from './fake-dom.mjs';
+import { fakeCloud } from './fake-cloud.mjs';
 
 const profile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' };
 
@@ -110,17 +111,9 @@ const { getEl, fire, store } = installFakeDom({ groups: { 'input[type=number]': 
 numberIds.forEach(getEl);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { dict } = await import('../js/i18n.js');
-const cloud = new Map(), writes = [];
-let authCb = null;
-const auth = { currentUser: null };
-const stub = {
-  auth, db: {}, onAuthStateChanged: (_a, cb) => { authCb = cb; },
-  doc: (_db, ...p) => ({ path: p.join('/') }), collection: (_db, ...p) => ({ path: p.join('/') }),
-  getDoc: async ref => { const d = cloud.get(ref.path); return { exists: () => !!d, data: () => d }; },
-  setDoc: async (ref, data) => { writes.push({ path: ref.path, data }); cloud.set(ref.path, { ...cloud.get(ref.path), ...data }); },   // merge
-  getDocs: async ref => ({ forEach(cb) { for (const [p, d] of cloud) if (p.startsWith(ref.path + '/')) cb({ id: p.slice(ref.path.length + 1), data: () => d }); } })
-};
-globalThis.__salaryTest = { cloudLoader: async () => stub };
+const fc = fakeCloud();
+const cloud = fc.docs, writes = fc.calls.setDoc;
+globalThis.__salaryTest = { cloudLoader: async () => fc.stub };
 console.warn = () => {};
 await import('../js/app.js');
 await sleep(100);
@@ -221,9 +214,9 @@ const path = id => `users/u1/months/${id}`;
 cloud.set(path(oldId), { ...clamp });
 cloud.set(path(nextId), { baseSalary: '6000', morningShifts: '10', scheduleDays: '20', bonusTotalPct: 15 });
 cloud.set(path(nowId), { baseSalary: '6000', morningShifts: '5', scheduleDays: '20', l4Days: '4', bonusTotalPct: 15 });
-auth.currentUser = { uid: 'u1', email: 'user@example.com' };
+fc.auth().currentUser = { uid: 'u1', email: 'user@example.com' };   // вхід версії 1.20.1: переноситься в новий профіль
 getEl('monthSelect').value = oldId;
-await authCb(auth.currentUser); await sleep(60);
+await fc.emit('[DEFAULT]'); await sleep(60);
 assert.equal(hintShown(), true);
 const accRes = (d, id) => compute(inputsFromSaved(d, id, profile));
 assert.equal(getEl('infoBonusSum').innerText, formatPLN(accRes(clamp, oldId).bonusAmount), 'акаунт: до збереження — як раніше');
@@ -244,7 +237,7 @@ assert.equal(toast(), dict.uk.toastSaveCloud, 'вдруге — лише пов�
 
 // збереження без жодної зміни теж переводить місяць на вибраний відсоток
 cloud.set(path(ids[11]), { ...clamp });
-await authCb(auth.currentUser); await select(ids[11]);
+await fc.emit('[DEFAULT]'); await select(ids[11]);
 await fire(getEl('btn-sync-up-calc'), 'click'); await sleep(60);
 assert.equal(hintShown(), false);
 assert.deepEqual(row(), ['10 %', '(15 % − 5 % за L4)']);
@@ -255,7 +248,7 @@ const prevMonth = { baseSalary: '6000', morningShifts: '10', scheduleDays: '20',
 const prevId = ids[4];
 cloud.set(path(prevId), prevMonth);
 cloud.set(path(nowId), { baseSalary: '6000', morningShifts: '5', scheduleDays: '20', l4Days: '4', bonusTotalPct: 15 });
-await authCb(auth.currentUser); await select(nowId);
+await fc.emit('[DEFAULT]'); await select(nowId);
 const prevRes = compute({ ...inputsFromSaved(prevMonth, prevId, profile), l4Days: 0, isPremium: false });
 assert.deepEqual([prevRes.presenceBonusPct, prevRes.qualityBonusPct], [2.5, 5]);
 const rate = prevRes.gross * (1 - 0.1371) / 30;
