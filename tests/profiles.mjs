@@ -5,10 +5,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDom } from './fake-dom.mjs';
 import {
-  PROFILES_KEY, DEFAULT_ID, ensureProfiles, readProfiles, activeProfile, checkName, createProfile, renameProfile,
+  PROFILES_KEY, DEFAULT_ID, AUTO_NAMES, displayName, ensureProfiles, readProfiles, activeProfile, checkName, createProfile, renameProfile,
   deleteProfile, setActiveProfile, profileStorage, profileKeys
 } from '../js/profiles.js';
 import { readGuestRecords, collectPeriodStats } from '../js/stats.js';
+import { dict as dict0 } from '../js/i18n.js';
 import { compute, computeDailyUrlopBonus, getMinWage } from '../js/calc.js';
 import { inputsFromSaved, yearToDate, pitExtra, pitBaseOf } from '../js/pit.js';
 
@@ -32,12 +33,12 @@ const existing = {
 {
   const st = memStorage(existing);
   const before = snapshot(st);
-  const state = ensureProfiles(st, 'Мій профіль', new Date('2026-11-27T10:00:00Z'));
+  const state = ensureProfiles(st, new Date('2026-11-27T10:00:00Z'));
   const after = snapshot(st);
-  assert.deepEqual(state, { active: DEFAULT_ID, list: [{ id: DEFAULT_ID, name: 'Мій профіль', createdAt: '2026-11-27T10:00:00.000Z' }] });
+  assert.deepEqual(state, { active: DEFAULT_ID, list: [{ id: DEFAULT_ID, name: '', createdAt: '2026-11-27T10:00:00.000Z', autoName: true }] }, 'перший профіль — з автоматичною назвою');
   assert.deepEqual(Object.keys(after).filter(k => !(k in before)), [PROFILES_KEY], 'додано лише profiles_v1');
   for (const [k, v] of Object.entries(before)) assert.equal(after[k], v, `ключ ${k} не змінено`);
-  assert.deepEqual(ensureProfiles(st, 'Інша назва'), state, 'повторний запуск нічого не змінює');
+  assert.deepEqual(ensureProfiles(st), state, 'повторний запуск нічого не змінює');
   assert.deepEqual(snapshot(st), after);
   // профіль 'default' бачить наявні гостьові дані без переносу
   assert.deepEqual(Object.keys(readGuestRecords(profileStorage(st, DEFAULT_ID))).sort(), ['2026-10', '2026-11']);
@@ -48,7 +49,7 @@ const existing = {
 // ---------- 2. Операції: створення, назви, перейменування, активний, видалення ----------
 {
   const st = memStorage(existing);
-  ensureProfiles(st, 'Мій профіль');
+  ensureProfiles(st);
   // перші 12 викликів дають той самий id двічі поспіль (колізія), далі — інші числа
   let seq = 0; const rnd = () => (seq < 12 ? [0.1, 0.5, 0.9, 0.3, 0.7, 0.05][seq++ % 6] : ((seq++ * 0.137) % 1));
   const a = createProfile(st, '  Дружина  ', { random: rnd });
@@ -105,7 +106,47 @@ const existing = {
   // пошкоджений profiles_v1 → знову один 'default' (дані без префікса не чіпаються)
   st.setItem(PROFILES_KEY, '{зламано');
   assert.equal(readProfiles(st), null);
-  assert.equal(ensureProfiles(st, 'Мій профіль').active, DEFAULT_ID);
+  assert.equal(ensureProfiles(st).active, DEFAULT_ID);
+}
+
+// ---------- 2b. Автоматична назва (1.19.1): міграція, показ мовою інтерфейсу, унікальність ----------
+{
+  assert.deepEqual(AUTO_NAMES, ['Мій профіль', 'Mój profil'], 'автоматичні назви — з i18n обома мовами');
+  const p = { id: DEFAULT_ID, name: '', autoName: true };
+  assert.equal(displayName(p, dict0.uk.profileDefaultName), 'Мій профіль');
+  assert.equal(displayName(p, dict0.pl.profileDefaultName), 'Mój profil');
+  assert.equal(displayName({ id: 'p1', name: 'Аня' }, 'Мій профіль'), 'Аня');
+  // міграція: рівно «Мій профіль» / «Mój profil» → autoName; інші назви (і схожі) не чіпаються
+  const old = { active: 'pbbbbbb', list: [
+    { id: DEFAULT_ID, name: 'Мій профіль', createdAt: 'a' }, { id: 'pbbbbbb', name: 'Mój profil', createdAt: 'b' },
+    { id: 'pcccccc', name: 'Аня', createdAt: 'c' }, { id: 'pdddddd', name: 'мій профіль 2', createdAt: 'd' }] };
+  const st = memStorage({ [PROFILES_KEY]: JSON.stringify(old), 'guest_month_2026-01': '{}' });
+  const s1 = ensureProfiles(st);
+  assert.deepEqual(s1.list.map(x => [x.id, x.name, x.autoName === true]),
+    [[DEFAULT_ID, '', true], ['pbbbbbb', '', true], ['pcccccc', 'Аня', false], ['pdddddd', 'мій профіль 2', false]]);
+  assert.equal(s1.active, 'pbbbbbb', 'активний не змінюється');
+  assert.deepEqual(JSON.parse(st.getItem(PROFILES_KEY)), s1, 'міграцію записано в profiles_v1');
+  assert.equal(st.getItem('guest_month_2026-01'), '{}', 'дані профілю не чіпаються');
+  const written = st.getItem(PROFILES_KEY); ensureProfiles(st);
+  assert.equal(st.getItem(PROFILES_KEY), written, 'повторний запуск не переписує');
+  // унікальність: профіль з autoName займає обидві автоматичні назви
+  const st2 = memStorage(); ensureProfiles(st2);
+  for (const t of ['Мій профіль', 'МІЙ ПРОФІЛЬ', 'Mój profil', 'mÓj PROFIL', '  Mój profil ']) {
+    assert.deepEqual(createProfile(st2, t), { ok: false, error: 'duplicate' }, `«${t}» зайнята автоматичною назвою`);
+  }
+  const b = createProfile(st2, 'Дружина');
+  assert.deepEqual(renameProfile(st2, b.id, 'Mój profil'), { ok: false, error: 'duplicate' }, 'перейменувати на автоназву іншого — ні');
+  // перейменування: autoName зникає; власна назва не перетворюється на автоматичну
+  assert.ok(renameProfile(st2, DEFAULT_ID, 'Я').ok);
+  assert.deepEqual(readProfiles(st2).list[0], { id: DEFAULT_ID, name: 'Я', createdAt: readProfiles(st2).list[0].createdAt }, 'після перейменування autoName немає');
+  assert.equal(JSON.parse(st2.getItem(PROFILES_KEY)).list[0].autoName, undefined);
+  ensureProfiles(st2); assert.equal(readProfiles(st2).list[0].name, 'Я', 'власна назва не мігрує');
+  // тепер автоназва вільна: її можна дати іншому профілю, і він стає автоматичним (показується мовою інтерфейсу)
+  assert.ok(renameProfile(st2, b.id, 'mój profil').ok);
+  assert.deepEqual(readProfiles(st2).list[1].autoName, true);
+  assert.deepEqual(renameProfile(st2, DEFAULT_ID, 'Мій профіль'), { ok: false, error: 'duplicate' }, 'і тоді вона зайнята обома мовами');
+  // перейменування профілю з autoName на його ж автоназву (будь-якою мовою) — дозволено, лишається autoName
+  assert.ok(renameProfile(st2, b.id, 'Мій профіль').ok); assert.equal(readProfiles(st2).list[1].autoName, true);
 }
 
 // ---------- 3. app.js: фейковий DOM і фейковий Firebase ----------
@@ -143,7 +184,7 @@ await sleep(100);
   const added = [...store.keys()].filter(k => !(k in appBefore));
   assert.deepEqual(added, [PROFILES_KEY], 'перший запуск застосунку додає лише profiles_v1');
   for (const [k, v] of Object.entries(appBefore)) assert.equal(store.get(k), v, `застосунок не змінив ${k}`);
-  assert.equal(JSON.parse(store.get(PROFILES_KEY)).list[0].name, dict.uk.profileDefaultName);
+  assert.deepEqual(JSON.parse(store.get(PROFILES_KEY)).list.map(p => [p.name, p.autoName]), [['', true]], 'у profiles_v1 — autoName, без тексту');
 }
 const body = getEl('app-body');
 const select = async id => { getEl('monthSelect').value = id; await fire(body, 'change', getEl('monthSelect')); await sleep(40); };
@@ -168,6 +209,11 @@ assert.equal(getEl('whoBadge').textContent, dict.uk.profileDefaultName, 'у ша
 assert.ok(/id="whoBadge" data-page="4"/.test(html), 'дотик до напису відкриває вкладку «Профіль»');
 assert.ok(/\.who\{[^}]*text-overflow:ellipsis/.test(css), 'довгі назви обрізаються трьома крапками');
 assert.deepEqual(listNames(), [dict.uk.profileDefaultName]); assert.deepEqual(pressed(), [dict.uk.profileDefaultName]);
+// автоматична назва перемикається разом із мовою: список і шапка
+window.setLang('pl');
+assert.deepEqual(listNames(), ['Mój profil'], 'PL: список'); assert.equal(getEl('whoBadge').textContent, 'Mój profil', 'PL: шапка');
+window.setLang('uk');
+assert.deepEqual(listNames(), ['Мій профіль'], 'UA: список'); assert.equal(getEl('whoBadge').textContent, 'Мій профіль', 'UA: шапка');
 assert.equal(hidden('btn-profile-delete'), true, 'один профіль — кнопки «Видалити» немає');
 assert.equal(hidden('profilesLocal'), false); assert.equal(hidden('profilesSignedIn'), true);
 // наявний місяць видно в профілі 'default'
@@ -243,8 +289,13 @@ getEl('profileName').value = 'дружина'; await click('btn-profile-name-sav
 assert.equal(getEl('profileNameError').innerText, dict.uk.errProfileDuplicate);
 getEl('profileName').value = '  ' + 'я'.repeat(31) + '  '; await click('btn-profile-name-save');
 assert.equal(getEl('profileNameError').innerText, dict.uk.errProfileName, '> 30 символів');
+getEl('profileName').value = 'Mój profil'; await click('btn-profile-name-save');
+assert.equal(getEl('profileNameError').innerText, '', 'автоназва власного профілю — не дублікат');
+await click('btn-profile-rename');
 getEl('profileName').value = '  Я  '; await click('btn-profile-name-save');
 assert.deepEqual(listNames(), ['Я', 'Дружина']); assert.equal(getEl('whoBadge').textContent, 'Я');
+assert.equal(profilesState().list[0].autoName, undefined, 'після перейменування autoName зникає');
+window.setLang('pl'); assert.deepEqual(listNames(), ['Я', 'Дружина'], 'власна назва не перекладається'); window.setLang('uk');
 assert.equal(profilesState().active, DEFAULT_ID, 'перейменування не змінює активний профіль');
 
 // 3f. Поріг PIT, ставка L4 і «Сер. за 1 дн.» з місяців профілю = шлях акаунта на тих самих записах
@@ -338,5 +389,5 @@ assert.deepEqual(listNames(), ['Я']); assert.equal(hidden('btn-profile-delete')
 assert.equal(getEl('whoBadge').textContent, 'Я');
 assert.equal(getEl('morningShifts').value, '16', 'після видалення активного одразу відкрито дані першого');
 
-console.log('OK: профілі (перший запуск без переносу, створення/назви/видалення, ізоляція, PIT/L4/відпускні без входу = акаунт, вхід і вихід)');
+console.log('OK: профілі (перший запуск без переносу, автоназва UA/PL і міграція, створення/назви/видалення, ізоляція, PIT/L4/відпускні без входу = акаунт, вхід і вихід)');
 process.exit(0);
