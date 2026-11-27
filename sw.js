@@ -15,6 +15,7 @@ const CORE = [
   './js/breakdown.js',
   './js/minwage.js',
   './js/emails.js',
+  './js/profiles.js',
   './js/i18n.js',
   './js/firebase.js',
   './js/utils.js',

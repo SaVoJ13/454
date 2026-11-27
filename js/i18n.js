@@ -14,7 +14,7 @@ export const dict = {
     yes: "Так", no: "Ні", menuTitle: "Меню", menuLang: "Мова", menuTheme: "Тема", profHeader: " 👤 Мій профіль",
     profBase: "Стандартна ставка (zł)", profAge: "Вік до 26 років", profPpk: "Участь у PPK",
     btnSaveProfile: "Зберегти профіль", toastProfOk: "Профіль збережено!", optThemeLight: "Світла", optThemeDark: "Темна",
-    cloudHeader: "Акаунт & Хмара", btnLogin: "Увійти (PRO)", btnRegister: "Реєстрація", btnSaveCloud: "Зберегти місяць",
+    cloudHeader: "Акаунт & Хмара", btnLogin: "Увійти", btnRegister: "Реєстрація", btnSaveCloud: "Зберегти місяць",
     btnLoadCloud: "Завантажити", btnLogout: "Вийти", swipeHintLeft: "← Свайп для деталей", swipeHintRight: "Свайп вправо →",
     detailsTitle: "Деталі 📊", breakdownHeader: "Структура нарахувань", infoBasePay: "База (з урахув. L4):",
     infoPresenceBonus: "Присутність", infoQualityBonus: "Якість", infoExtraBonus: "Додаткова премія", infoNightTime: "Нічні (час)",
@@ -36,7 +36,7 @@ export const dict = {
     yes: "Tak", no: "Nie", menuTitle: "Menu", menuLang: "Język", menuTheme: "Motyw", profHeader: " 👤 Mój Profil",
     profBase: "Standardowa stawka (zł)", profAge: "Wiek < 26 lat", profPpk: "PPK",
     btnSaveProfile: "Zapisz profil", toastProfOk: "Profil zapisany!", optThemeLight: "Jasny", optThemeDark: "Ciemny",
-    cloudHeader: "Konto & Chmura", btnLogin: "Zaloguj (PRO)", btnRegister: "Rejestracja", btnSaveCloud: "Zapisz miesiąc",
+    cloudHeader: "Konto & Chmura", btnLogin: "Zaloguj", btnRegister: "Rejestracja", btnSaveCloud: "Zapisz miesiąc",
     btnLoadCloud: "Pobierz", btnLogout: "Wyloguj", swipeHintLeft: "← Przesuń po szczegóły", swipeHintRight: "Przesuń w prawo →",
     detailsTitle: "Szczegóły 📊", breakdownHeader: "Struktura naliczeń", infoBasePay: "Baza (po L4):",
     infoPresenceBonus: "Frekwencja", infoQualityBonus: "Jakość", infoExtraBonus: "Dodatkowa premia", infoNightTime: "Dodatek nocny (czas)",
@@ -53,6 +53,7 @@ export const dict = {
 };
 
 Object.assign(dict.uk, {
+  profilesTitle: "Профілі", profileDefaultName: "Мій профіль", profileAdd: "Додати профіль", profileRename: "Перейменувати", profileDelete: "Видалити", profileNamePh: "Назва профілю", profileNameSave: "Зберегти", profileCancel: "Скасувати", profileDeleteYes: "Так, видалити", profileDeleteConfirm: "Видалити профіль «{name}» і всі його місяці? Це не можна скасувати.", errProfileName: "Назва від 1 до 30 символів", errProfileDuplicate: "Профіль з такою назвою вже є", profilesSignedIn: "Ви увійшли в акаунт {email}. Локальні профілі доступні після виходу.", profilesNote: "Кожен профіль має свої місяці, налаштування й статистику. Дані зберігаються лише на цьому пристрої.", profSettingsTitle: "Налаштування профілю",
   appTitle: "Калькулятор зарплати", navCalc: "Розрахунок", navDetails: "Деталі", navProfile: "Профіль", navSettings: "Налаштування",
   netHint: "до виплати", secBase: "Основна зарплата", secBase2: "Основна зарплата та бонуси", secNight: "Нічні зміни та вихідні",
   secVac: "Відпускні", secBlood: "Поважна відсутність", secL4: "Лікарняний", secTotals: "Підсумок", secStats: "Параметри місяця",
@@ -64,6 +65,7 @@ Object.assign(dict.uk, {
 });
 
 Object.assign(dict.pl, {
+  profilesTitle: "Profile", profileDefaultName: "Mój profil", profileAdd: "Dodaj profil", profileRename: "Zmień nazwę", profileDelete: "Usuń", profileNamePh: "Nazwa profilu", profileNameSave: "Zapisz", profileCancel: "Anuluj", profileDeleteYes: "Tak, usuń", profileDeleteConfirm: "Usunąć profil „{name}” i wszystkie jego miesiące? Tego nie można cofnąć.", errProfileName: "Nazwa od 1 do 30 znaków", errProfileDuplicate: "Profil o tej nazwie już istnieje", profilesSignedIn: "Zalogowano na konto {email}. Profile lokalne są dostępne po wylogowaniu.", profilesNote: "Każdy profil ma własne miesiące, ustawienia i statystyki. Dane są zapisywane tylko na tym urządzeniu.", profSettingsTitle: "Ustawienia profilu",
   appTitle: "Kalkulator wynagrodzenia", navCalc: "Kalkulator", navDetails: "Szczegóły", navProfile: "Profil", navSettings: "Ustawienia",
   netHint: "do wypłaty", secBase: "Wynagrodzenie podstawowe", secBase2: "Wynagrodzenie i premie", secNight: "Zmiany nocne i weekendy",
   secVac: "Urlop", secBlood: "Nieobecność usprawiedliwiona", secL4: "Zwolnienie L4", secTotals: "Podsumowanie", secStats: "Parametry miesiąca",

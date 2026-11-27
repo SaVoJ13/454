@@ -94,7 +94,7 @@ const money = v => new Intl.NumberFormat('pl-PL', { style: 'currency', currency:
 const tick = ms => new Promise(r => setTimeout(r, ms));
 const gProfile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' };
 const jan = { baseSalary: '6000', morningShifts: '10', nightShifts: '4', scheduleDays: '20', bonusPctSelect: '10', presencePctSelect: '5' };
-const feb = { ...jan, baseSalary: '7000', overtimeDays: '2', vacationDays: '5' };     // відпустка гостю не враховується (PRO)
+const feb = { ...jan, baseSalary: '7000', overtimeDays: '2', vacationDays: '5' };     // з 1.19.0 відпустка враховується і без входу (локальний профіль)
 store.set('guest_month_2026-01', JSON.stringify(jan)); store.set('guest_month_2026-02', JSON.stringify(feb));
 const active = () => ['page1', 'page2', 'viewStats', 'viewProfile', 'viewSettings'].filter(id => getEl(id).classList.contains('active'));
 window.switchPage(3); await tick(60);
@@ -103,7 +103,7 @@ window.switchPage(4); assert.deepEqual(active(), ['viewProfile'], 'сторін�
 window.switchPage(5); assert.deepEqual(active(), ['viewSettings'], 'сторінка 5 — «Параметри»');
 window.switchPage(2); assert.deepEqual(active(), ['page2']);
 window.switchPage(3); await tick(60);
-const rJan = compute(inputsFromSaved(jan, '2026-01', gProfile, { premium: false })), rFeb = compute(inputsFromSaved(feb, '2026-02', gProfile, { premium: false }));
+const rJan = compute(inputsFromSaved(jan, '2026-01', gProfile)), rFeb = compute(inputsFromSaved(feb, '2026-02', gProfile));   // усі функції, як в акаунта
 const names = dict.uk.monthNames;
 const pressed = () => ['pill3', 'pill6', 'pill12', 'pillYears'].filter(id => getEl(id).attrs['aria-pressed'] === 'true');
 const bars = () => findAll(getEl('incomeChart'), n => hasClass(n, 'bar-net')).length;
@@ -117,7 +117,7 @@ assert.equal(getEl('statsEmpty').classList.contains('hidden'), true); assert.equ
 assert.equal(bars(), 2, 'стовпчики лише для двох збережених місяців');
 assert.equal(hits().length, 12, 'у вікні 12 стовпчиків: листопад 2025 … жовтень 2026');
 assert.equal(getEl('statsGrossVal').textContent, money(rJan.gross + rFeb.gross));
-assert.equal(getEl('statsNetVal').textContent, money(rJan.net + rFeb.net), 'гість: netto без порогу PIT і без PRO-полів');
+assert.equal(getEl('statsNetVal').textContent, money(rJan.net + rFeb.net), 'локальний профіль: netto з усіма полями (поріг PIT тут не досягнуто)');
 assert.equal(getEl('statsAvgVal').textContent, money((rJan.net + rFeb.net) / 2));
 assert.equal(getEl('statsBestVal').textContent, `${names[1]} 2026 · ${money(rFeb.net)}`, 'найвище нетто — лютий (з роком: вікно охоплює два роки)');
 assert.equal(getEl('statsCountVal').textContent, '2 / 12');
@@ -127,9 +127,9 @@ assert.equal(getEl('statsMissing').classList.contains('hidden'), false, 'є мі
 assert.deepEqual(missingList(), [names[10], names[11], ...[2, 3, 4, 5, 6, 7, 8, 9].map(m => names[m])].map((n, i) => `${n} ${i < 2 ? 2025 : 2026}`), 'листопад–грудень 2025 і березень–жовтень 2026');
 assert.equal(getEl('statsMissingTitle').textContent, `${dict.uk.statsMissingN} 10`);
 assert.ok(!missingList().some(x => x.includes(names[10] + ' 2026') || x.includes(names[11] + ' 2026')), 'майбутні місяці (листопад–грудень 2026) не пропонуються');
-// структура змін: 10+10 звичайних, 4+4 нічних, 2 надгодини; відпустку гостя не враховано
-assert.equal(findAll(getEl('mixChart'), n => hasClass(n, 'center-num'))[0].textContent, '30');
-assert.equal(getEl('mixLegend').children.length, 3);
+// структура змін: 10+10 звичайних, 4+4 нічних, 2 надгодини, 5 днів відпустки (з 1.19.0 враховується без входу)
+assert.equal(findAll(getEl('mixChart'), n => hasClass(n, 'center-num'))[0].textContent, '35');
+assert.equal(getEl('mixLegend').children.length, 4);
 // дотик до лютого показує суми цього місяця (з роком, бо вікно охоплює два роки)
 hits()[3].handlers.click[0]();
 assert.equal(getEl('statsPick').textContent, `${names[1]} 2026: ${dict.uk.statsGross} ${money(rFeb.gross)} · ${dict.uk.statsNet} ${money(rFeb.net)}`);
@@ -175,7 +175,7 @@ assert.equal(getEl('periodRange').textContent, `${names[0]} 2025 – ${names[9]}
 assert.equal(getEl('statsCountVal').textContent, '3 / 22', '12 місяців 2025 + 10 місяців 2026');
 assert.equal(hits().length, 2, 'два роки — два стовпчики');
 assert.equal(getEl('statsIncomeTitle').textContent, dict.uk.statsIncomeYears);
-const rJan25 = compute(inputsFromSaved(jan, '2025-12', gProfile, { premium: false }));
+const rJan25 = compute(inputsFromSaved(jan, '2025-12', gProfile));
 hits()[0].handlers.click[0]();
 assert.equal(getEl('statsPick').textContent, `2025: ${dict.uk.statsPerMonth}: ${dict.uk.statsGross} ${money(rJan25.gross)} · ${dict.uk.statsNet} ${money(rJan25.net)} (1 / 12 ${dict.uk.statsMonthsShort})`);
 // останній вибраний рік зняти не можна
