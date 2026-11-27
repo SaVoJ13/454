@@ -9,7 +9,7 @@ import { saveMonthCache, loadMonthCache, clearMonthCache, listMonthCache } from 
 import { pitBaseOf, pitExtra, yearToDate } from './pit.js';
 import { collectPeriodStats, readGuestRecords, availableYears, normalizePeriod } from './stats.js';
 import { drawIncomeChart, drawMixChart, drawMixLegend } from './charts.js';
-import { ensureProfiles, activeProfile, profileStorage, createProfile, renameProfile, deleteProfile, setActiveProfile } from './profiles.js';
+import { ensureProfiles, activeProfile, displayName, profileStorage, createProfile, renameProfile, deleteProfile, setActiveProfile } from './profiles.js';
 
 /* Лише для тестів: tests/cloud.mjs підставляє фейковий Firebase і короткий таймаут. У браузері не задано. */
 const TEST = globalThis.__salaryTest || {};
@@ -83,8 +83,9 @@ let userProfile = { baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes'
 window.cachedL4DailyRate = null;
 
 /* ЛОКАЛЬНІ ПРОФІЛІ (js/profiles.js). Дані гостя — у сховищі активного профілю; поки є вхід в акаунт, профілі не діють. */
-const defaultProfileName = () => dict[currentLang].profileDefaultName;
-let profiles = ensureProfiles(localStorage, defaultProfileName());
+let profiles = ensureProfiles(localStorage);
+/* Показувана назва: автоматична («Мій профіль» / «Mój profil») — мовою інтерфейсу, тож змінюється разом із мовою. */
+const profileLabel = p => displayName(p, dict[currentLang].profileDefaultName);
 const guestStore = () => profileStorage(localStorage, profiles.active);
 const GUEST_PROFILE_KEY = 'user_profile_guest';
 const guestMonthKey = monthVal => `guest_month_${monthVal}`;
@@ -188,8 +189,14 @@ window.setLang = function(lang) {
   document.getElementById('langSelect').value = lang;
   showDeductionError(deductionError);
   showProfileNameError(profileNameError);
-  renderKnownEmails(); renderProfiles(); initMonths(); renderMinWageSettings(); calculateSalary(); refreshPeriod(); paintStats();
+  renderAppVersion(); renderKnownEmails(); renderProfiles(); initMonths(); renderMinWageSettings(); calculateSalary(); refreshPeriod(); paintStats();
 };
+
+/* «ПАРАМЕТРИ», унизу: «Версія 1.19.1» (у шапці версії немає — там місце для назви застосунку й профілю). */
+function renderAppVersion() {
+  const el = document.getElementById('appVersion');
+  el.textContent = globalThis.APP_VERSION ? dict[currentLang].appVersionLabel.replace('{v}', globalThis.APP_VERSION) : '';
+}
 
 /* «ПАРАМЕТРИ»: мінімалка вручну для років календаря без офіційної суми й для всіх років зі збереженою сумою. */
 function renderMinWageSettings() {
@@ -1008,7 +1015,7 @@ function renderProfiles() {
   document.getElementById('profileNameLabel').textContent = profileEdit && profileEdit.kind === 'rename' ? t.profileRename : t.profileAdd;
   const target = profiles.list.find(p => p.id === profileDeleteId);
   document.getElementById('profileDelete').classList.toggle('hidden', !target);
-  document.getElementById('profileDeleteText').innerText = target ? t.profileDeleteConfirm.replace('{name}', target.name) : '';
+  document.getElementById('profileDeleteText').innerText = target ? t.profileDeleteConfirm.replace('{name}', profileLabel(target)) : '';
   document.getElementById('profileActions').classList.toggle('hidden', !!(profileEdit || target));
   renderWho();
 }
@@ -1016,7 +1023,7 @@ function renderProfiles() {
 /* Напис у шапці: назва активного локального профілю або email акаунта. Дотик відкриває вкладку «Профіль». */
 function renderWho() {
   const el = document.getElementById('whoBadge');
-  const text = signedIn ? signedInEmail : activeProfile(profiles).name;
+  const text = signedIn ? signedInEmail : profileLabel(activeProfile(profiles));
   el.textContent = text;
   el.setAttribute('title', text);
   el.setAttribute('aria-label', `${dict[currentLang].navProfile}: ${text}`);
@@ -1024,7 +1031,7 @@ function renderWho() {
 
 function profileItem(p) {
   const btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'pill prof-item'; btn.textContent = p.name;
+  btn.type = 'button'; btn.className = 'pill prof-item'; btn.textContent = profileLabel(p);
   btn.setAttribute('aria-pressed', String(p.id === profiles.active));
   btn.addEventListener('click', () => (p.id === profiles.active ? undefined : switchProfile(p.id)));
   return btn;
@@ -1041,7 +1048,7 @@ function showProfileNameError(error) {
 function openProfileEdit(edit) {
   profileEdit = edit; profileDeleteId = null;
   const input = document.getElementById('profileName');
-  input.value = edit.kind === 'rename' ? activeProfile(profiles).name : '';
+  input.value = edit.kind === 'rename' ? profileLabel(activeProfile(profiles)) : '';
   showProfileNameError(null);
   renderProfiles();
   if (input.focus) input.focus();
@@ -1208,8 +1215,6 @@ function paintStats() {
 document.querySelectorAll('#periodPills .pill').forEach(btn => btn.addEventListener('click', () => setStatsMode(btn.dataset.mode)));
 
 
-const appVerEl = document.getElementById('appVersion');
-if (appVerEl && globalThis.APP_VERSION) appVerEl.textContent = 'v' + globalThis.APP_VERSION;
 // Повідомлення про нову версію: js/sw-register.js диспатчить подію, коли новий service worker перейняв керування
 const updateBanner = document.getElementById('update-banner');
 window.addEventListener('salary:update-ready', () => updateBanner.classList.remove('hidden'));

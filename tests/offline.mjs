@@ -86,7 +86,10 @@ langSel.value = 'uk'; await fire(langSel, 'change');
 assert.equal(document.documentElement.lang, 'uk');
 
 // 9. Версія показується в шапці
-assert.equal(getEl('appVersion').textContent, 'v9.9.9', 'версія в шапці');
+assert.equal(getEl('appVersion').textContent, 'Версія 9.9.9', 'версія в «Параметрах»');
+getEl('langSelect').value = 'pl'; await fire(getEl('langSelect'), 'change');
+assert.equal(getEl('appVersion').textContent, 'Wersja 9.9.9', 'PL: «Wersja …»');
+getEl('langSelect').value = 'uk'; await fire(getEl('langSelect'), 'change');
 
 // 10. Вкладка «Рік» (гість): статистика зі збережених місяців у localStorage
 for (const k of [...store.keys()]) if (k.startsWith('guest_month_')) store.delete(k);
