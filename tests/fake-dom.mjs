@@ -5,9 +5,10 @@
 /* Вузол дерева (елемент HTML/SVG): атрибути, діти, обробники — достатньо, щоб перевірити, що намальовано. */
 export function makeNode(tag) {
   return {
-    tag, attrs: {}, children: [], className: '', textContent: '', value: '', text: '', handlers: {},
+    tag, attrs: {}, dataset: {}, children: [], className: '', textContent: '', value: '', text: '', handlers: {},
     setAttribute(k, v) { this.attrs[k] = v; },
     getAttribute(k) { return this.attrs[k]; },
+    hasAttribute(k) { return k in this.attrs; },
     appendChild(c) { this.children.push(c); return c; },
     replaceChildren(...nodes) { this.children = nodes; },
     addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); }
@@ -46,7 +47,7 @@ export function installFakeDom({ groups = {} } = {}) {
       replaceChildren(...nodes) { this.children = nodes; },
       addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); },
       attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k] ?? null; },
-      removeAttribute(k) { delete this.attrs[k]; }, hasAttribute() { return false; },
+      removeAttribute(k) { delete this.attrs[k]; }, hasAttribute(k) { return k in this.attrs; },
       dispatchEvent() {}, closest() { return null; }
     };
   }

@@ -34,10 +34,11 @@ assert.ok(gross && !gross.startsWith('0,00'), `BRUTTO має бути розра
 
 // 5. Кнопки хмари без мережі показують тост і не падають
 const { dict } = await import('../js/i18n.js');
-for (const id of ['btn-login', 'btn-register']) {
+const submit = () => getEl('loginForm').handlers.submit[0]({ preventDefault() {} });
+for (const [name, run] of [['вхід', submit], ['реєстрація', () => fire(getEl('btn-register'), 'click')]]) {
   getEl('toast').innerText = '';
-  await fire(getEl(id), 'click');
-  assert.equal(getEl('toast').innerText, dict.uk.toastOffline, `${id}: очікувався тост про офлайн`);
+  await run();
+  assert.equal(getEl('toast').innerText, dict.uk.toastOffline, `${name}: очікувався тост про офлайн`);
 }
 
 // 5b. Скидання пароля без мережі: спершу вимога email, потім повідомлення про недоступну хмару

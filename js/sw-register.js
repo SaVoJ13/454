@@ -1,6 +1,8 @@
 /* Класичний скрипт (не модуль): працює, навіть якщо app.js не завантажився.
    Реєструє service worker і сповіщає застосунок, що з'явилась нова версія. */
-if ('serviceWorker' in navigator) {
+// У нативному застосунку (Capacitor) оновлення приходять через Google Play, service worker не потрібен
+const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+if (!isNativeApp && 'serviceWorker' in navigator) {
   // Перше встановлення теж спричиняє controllerchange — банер потрібен лише тоді, коли контролер уже був
   const hadController = !!navigator.serviceWorker.controller;
   let notified = false;
