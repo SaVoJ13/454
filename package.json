@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/math-lock.mjs && node tests/golden.mjs && node tests/reference.mjs && node tests/pit.mjs && node tests/nightcarry.mjs && node tests/deduction.mjs && node tests/bonus.mjs && node tests/breakdown.mjs && node tests/minwage.mjs && node tests/ui.mjs && node tests/stats.mjs && node tests/charts.mjs && node tests/i18n.mjs && node tests/monthcache.mjs && node tests/offline.mjs && node tests/cloud.mjs && node tests/profiles.mjs && node tests/login.mjs && node tests/update.mjs && node tests/manifest.mjs && node tests/security.mjs && node tests/layout.mjs && node tests/version.mjs && node tests/redesign.mjs",
+    "test": "node tests/math-lock.mjs && node tests/golden.mjs && node tests/reference.mjs && node tests/pit.mjs && node tests/nightcarry.mjs && node tests/deduction.mjs && node tests/bonus.mjs && node tests/breakdown.mjs && node tests/minwage.mjs && node tests/ui.mjs && node tests/stats.mjs && node tests/charts.mjs && node tests/i18n.mjs && node tests/monthcache.mjs && node tests/offline.mjs && node tests/cloud.mjs && node tests/profiles.mjs && node tests/login.mjs && node tests/update.mjs && node tests/manifest.mjs && node tests/security.mjs && node tests/layout.mjs && node tests/version.mjs && node tests/redesign.mjs && node tests/cloudprofiles.mjs",
     "test:update": "node tests/golden.mjs --update"
   }
 }

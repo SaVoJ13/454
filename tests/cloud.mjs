@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { installFakeDom, findAll, hasClass } from './fake-dom.mjs';
+import { fakeCloud } from './fake-cloud.mjs';
 import { compute } from '../js/calc.js';
 import { pitBaseOf, inputsFromSaved } from '../js/pit.js';
 
@@ -22,47 +23,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { dict } = await import('../js/i18n.js');
 const toast = () => getEl('toast').innerText;
 
-// ---- фейковий Firebase ----
-const cloud = new Map();                 // path -> дані
-const calls = { setDoc: [] };
-let getDocMode = 'ok', setDocMode = 'ok', getDocsMode = 'ok';
-const auth = { currentUser: null };
-const resets = []; let resetMode = 'ok';
-let authCb = null;
-const stub = {
-  auth, db: {},
-  signInWithEmailAndPassword: async () => {}, createUserWithEmailAndPassword: async () => {},
-  sendPasswordResetEmail: async (a, email) => {
-    resets.push({ email, lang: a.languageCode });
-    if (resetMode !== 'ok') throw Object.assign(new Error(resetMode), { code: resetMode });
-  },
-  signOut: async a => { a.currentUser = null; await authCb(null); },
-  onAuthStateChanged: (_a, cb) => { authCb = cb; },
-  doc: (_db, ...p) => ({ path: p.join('/') }),
-  collection: (_db, ...p) => ({ path: p.join('/') }),
-  getDoc: async ref => {
-    if (getDocMode === 'fail') throw Object.assign(new Error('unavailable'), { code: 'unavailable' });
-    const d = cloud.get(ref.path); return { exists: () => !!d, data: () => d };
-  },
-  setDoc: async (ref, data) => {
-    calls.setDoc.push({ path: ref.path, data });
-    if (setDocMode === 'hang') return new Promise(() => {});
-    cloud.set(ref.path, data);
-  },
-  getDocs: async ref => {
-    if (getDocsMode === 'fail') throw Object.assign(new Error('unavailable'), { code: 'unavailable' });
-    return {
-      forEach(cb) { for (const [p, d] of cloud) if (p.startsWith(ref.path + '/')) cb({ id: p.slice(ref.path.length + 1), data: () => d }); }
-    };
-  }
-};
-globalThis.__salaryTest = { cloudLoader: async () => stub, saveTimeoutMs: 60, resetCooldownMs: 120,
+// ---- фейковий Firebase (tests/fake-cloud.mjs: окремий вхід на кожен appName, доступ за uid) ----
+const fc = fakeCloud({ accounts: { 'user@example.com': 'u1' } });
+const cloud = fc.docs, calls = fc.calls, resets = fc.calls.reset;
+const APP = 'p_default';                                   // екземпляр Firebase профілю 'default'
+globalThis.__salaryTest = { cloudLoader: async () => fc.stub, saveTimeoutMs: 60, resetCooldownMs: 120,
   now: new Date(2026, 11, 15, 12).getTime() };   // «сьогодні» для статистики: грудень 2026 (поточний місяць, у якому перетинається поріг PIT)
 console.warn = () => {};
 
 await import('../js/app.js');
 await sleep(100);
-assert.ok(authCb, 'застосунок має підписатися на onAuthStateChanged після завантаження хмари');
+assert.equal(fc.auth('[DEFAULT]').listeners.length, 1, 'застосунок має підписатися на onAuthStateChanged після завантаження хмари');
 
 // 0. Скидання пароля (до входу в акаунт)
 const resetBtn = getEl('btn-reset-password');
@@ -82,20 +53,20 @@ await fire(resetBtn, 'click');
 assert.equal(resets.length, 1, 'у період паузи другого листа не надсилаємо');
 assert.ok(toast().startsWith(dict.uk.toastResetWait.split('{n}')[0]), `очікувалось повідомлення про паузу, а не "${toast()}"`);
 // 0d. Акаунта не існує: відповідь та сама (не розкриваємо, які email зареєстровані)
-await wait(150); resetMode = 'auth/user-not-found'; getEl('toast').innerText = '';
+await wait(150); fc.mode.reset = 'auth/user-not-found'; getEl('toast').innerText = '';
 await fire(resetBtn, 'click');
 assert.equal(resets.length, 2); assert.equal(toast(), dict.uk.toastResetSent, 'user-not-found не має відрізнятися від успіху');
 // 0e. Помилки Firebase → зрозумілі повідомлення; після помилки паузи немає
 await wait(150);
 for (const [code, key] of [['auth/invalid-email', 'errInvalidEmail'], ['auth/too-many-requests', 'errTooMany'], ['auth/network-request-failed', 'errNetwork']]) {
-  resetMode = code; getEl('toast').innerText = '';
+  fc.mode.reset = code; getEl('toast').innerText = '';
   await fire(resetBtn, 'click');
   assert.equal(toast(), dict.uk.toastResetErr + dict.uk[key], `${code}: очікувалось локалізоване повідомлення`);
   assert.equal(resetBtn.disabled, false);
 }
 assert.equal(resets.length, 5, 'після помилок повторна спроба одразу дозволена');
 // 0f. Мова листа слідує за мовою інтерфейсу
-resetMode = 'ok'; await wait(150);
+fc.mode.reset = 'ok'; await wait(150);
 await fire(getEl('langPl'), 'click');
 await fire(resetBtn, 'click');
 assert.equal(resets.at(-1).lang, 'pl'); assert.equal(toast(), dict.pl.toastResetSent);
@@ -119,11 +90,13 @@ assert.equal(getEl('cloudSheet').attrs['aria-labelledby'], 'cloudOutTitle');
 await fire(getEl('btn-cloud'), 'click');
 assert.equal(getEl('cloudSheet').classList.contains('hidden'), false, 'кнопка хмари відкриває панель');
 cloud.set(monthPath, { baseSalary: '6100', morningShifts: '10', nightShifts: '4' });
-auth.currentUser = { uid: 'u1', email: 'user@example.com' };
-await authCb(auth.currentUser);
+getEl('email').value = 'user@example.com'; getEl('password').value = 'secret-123';
+await getEl('loginForm').handlers.submit[0]({ preventDefault() {} }); await sleep(60);
+assert.deepEqual(fc.calls.signIn.map(c => c.appName), [APP], 'вхід — в екземпляр профілю');
 assert.equal(body.classList.contains('first-run'), false, 'вхід закриває перший запуск');
 assert.equal(getEl('page1').classList.contains('active'), true, 'після входу — «Розрахунок»');
-assert.equal(store.has('profiles_v1'), false, 'вхід не створює локального профілю');
+assert.deepEqual(JSON.parse(store.get('profiles_v1')).list.map(p => [p.id, p.name, p.cloud]), [['default', 'user', { uid: 'u1', email: 'user@example.com', appName: APP }]], 'перший запуск: профіль акаунта з назвою з email');
+assert.equal(fc.calls.setDoc.length, 0, 'вхід на наявний акаунт нічого не пише в хмару');
 assert.equal(cloudIcon(), 'ok', 'вхід і синхронізація — хмара з галочкою');
 assert.equal(getEl('auth-container').classList.contains('hidden'), true); assert.equal(getEl('sync-container').classList.contains('hidden'), false);
 assert.equal(getEl('cloudSheet').attrs['aria-labelledby'], 'cloudInTitle');
@@ -140,7 +113,7 @@ assert.ok(store.has(cacheKey), 'після успішного завантаже
 assert.equal(JSON.parse(store.get(cacheKey)).data.morningShifts, '10');
 
 // 2. Хмара недоступна: показується копія з повідомленням (а не порожні поля)
-getDocMode = 'fail';
+fc.mode.getDoc = 'fail';
 getEl('morningShifts').value = '0';
 getEl('toast').innerText = '';
 await fire(getEl('btn-sync-down'), 'click');
@@ -150,7 +123,7 @@ assert.equal(cloudIcon(), 'off', 'помилка синхронізації — 
 assert.equal(getEl('cloudSyncState').textContent, dict.uk.cloudNoConn);
 
 // 2b. Без мережі (navigator.onLine=false) — те саме, без очікування таймауту Firestore
-navigator.onLine = false; getDocMode = 'ok';
+navigator.onLine = false; fc.mode.getDoc = 'ok';
 getEl('morningShifts').value = '0'; getEl('toast').innerText = '';
 await fire(getEl('btn-sync-down'), 'click');
 assert.equal(getEl('morningShifts').value, '10', 'офлайн: поля з локальної копії');
@@ -164,14 +137,14 @@ assert.equal(toast(), dict.uk.toastSaveOffline);
 assert.equal(getEl('btn-sync-up-calc').disabled, false);
 
 // 3b. Мережа «є», але запис висне: таймаут → повідомлення, кнопка розблокована
-navigator.onLine = true; setDocMode = 'hang'; getEl('toast').innerText = '';
+navigator.onLine = true; fc.mode.setDoc = 'hang'; getEl('toast').innerText = '';
 await fire(getEl('btn-sync-up-calc'), 'click');
 assert.equal(toast(), dict.uk.toastSaveOffline, 'зависання запису не має мовчки блокувати кнопку');
 assert.equal(getEl('btn-sync-up-calc').disabled, false);
 assert.equal(calls.setDoc.length, 1);
 
 // 4. Звичайне збереження: запис у правильний шлях + оновлена локальна копія
-setDocMode = 'ok'; calls.setDoc.length = 0; getEl('morningShifts').value = '12'; getEl('toast').innerText = '';
+fc.mode.setDoc = 'ok'; calls.setDoc.length = 0; getEl('morningShifts').value = '12'; getEl('toast').innerText = '';
 await fire(getEl('btn-sync-up-info'), 'click');
 assert.equal(calls.setDoc.length, 1);
 assert.equal(calls.setDoc[0].path, monthPath);
@@ -188,7 +161,7 @@ const money = v => new Intl.NumberFormat('pl-PL', { style: 'currency', currency:
 const seed = { baseSalary: '10500', morningShifts: '16', nightShifts: '4', scheduleDays: '20', bonusPctSelect: '10', presencePctSelect: '5' };
 for (let j = 1; j <= 12; j++) cloud.set(`users/u1/months/2026-${String(j).padStart(2, '0')}`, { ...seed });
 cloud.set('users/u1/profile/userProfile', { ...profile });   // далі — акаунт зі збереженим старим профілем (без extraDeduction)
-await authCb(auth.currentUser);                          // повторний вхід скидає кеш списку місяців
+await fc.emit(APP);                          // повторний вхід скидає кеш списку місяців
 assert.equal(getEl('profExtraDeduction').value, '36,70', 'збережений старий профіль — як раніше');
 const selectMonth = async id => { getEl('monthSelect').value = id; await fire(getEl('app-body'), 'change', getEl('monthSelect')); await sleep(80); };
 await selectMonth('2026-12');
@@ -232,8 +205,8 @@ for (let j = 1; j <= 12; j++) {
   const id = `2026-${String(j).padStart(2, '0')}`;
   store.set(`cloud_month_u1_${id}`, JSON.stringify({ v: 1, savedAt: new Date().toISOString(), data: { ...seed } }));
 }
-navigator.onLine = false; getDocsMode = 'fail';
-await authCb(auth.currentUser);                          // скидає кеш списку місяців в пам'яті
+navigator.onLine = false; fc.mode.getDocs = 'fail';
+await fc.emit(APP);                          // скидає кеш списку місяців в пам'яті
 await selectMonth('2026-12');
 assert.equal(getEl('netResult').innerText, money(resDec.net - expectedExtra), 'офлайн: поріг PIT враховано за локальними копіями');
 assert.equal(getEl('rowPitExtra').classList.contains('hidden'), false);
@@ -241,7 +214,7 @@ assert.equal(getEl('rowPitExtra').classList.contains('hidden'), false);
 window.switchPage(3); await sleep(80);
 assert.equal(getEl('statsCountVal').textContent, '12 / 12', 'офлайн: вкладка «Статистика» бере місяці з локальних копій (останні 12 місяців = 2026 рік)');
 window.switchPage(1);
-navigator.onLine = true; getDocsMode = 'ok';
+navigator.onLine = true; fc.mode.getDocs = 'ok';
 
 // 4f. Вкладка «Статистика» (акаунт): netto місяця в статистиці = netto в калькуляторі, зокрема з порогом PIT у грудні
 window.switchPage(3); await sleep(80);
@@ -272,24 +245,28 @@ assert.equal(getEl('statsCountVal').textContent, '10 / 12', 'вікно 12 мі�
 assert.deepEqual(getEl('statsMissingList').children.map(li => li.textContent), [`${monthsNames[10]} 2025`, `${monthsNames[11]} 2025`], 'у списку відсутніх лише минулі місяці');
 globalThis.__salaryTest.now = new Date(2026, 11, 15, 12).getTime();
 
-// 5. Вихід: копія місяців і профіль акаунта прибрані, гостьові дані лишаються
-store.set('user_profile_u1', '{"baseSalary":6100}');
+// 5. Вихід: місяці акаунта копіюються в сховище профілю (хмарна версія замінює локальну), копії акаунта прибираються
+store.set('user_profile_u1', JSON.stringify(profile));
 store.set('guest_month_2026-01', '{"baseSalary":"5000"}');
+store.set('guest_month_2025-05', '{"baseSalary":"5100"}');
 await fire(getEl('btn-cloud'), 'click');
-await fire(getEl('btn-logout'), 'click');                 // «Вийти з акаунта» — у панелі хмари
+await fire(getEl('btn-logout'), 'click'); await sleep(80);    // «Вийти з акаунта» — у панелі хмари
+assert.deepEqual(fc.calls.signOut, [APP], 'вихід лише з екземпляра профілю');
 assert.equal(cloudIcon(), 'out', 'після виходу — звичайна хмара');
 assert.equal(getEl('auth-container').classList.contains('hidden'), false, 'панель знову показує вхід');
-assert.equal(body.classList.contains('first-run'), false, 'гостьові дані є — першого запуску немає');
+assert.equal(body.classList.contains('first-run'), false, 'профіль є — першого запуску немає');
 await fire(getEl('cloudBackdrop'), 'click'); assert.equal(getEl('cloudSheet').classList.contains('hidden'), true, 'дотик до затемнення закриває панель');
 assert.ok(![...store.keys()].some(k => k.startsWith('cloud_month_u1_')), 'копії місяців акаунта видалені');
 assert.ok(!store.has('user_profile_u1'), 'локальна копія профілю акаунта видалена');
-assert.ok(store.has('guest_month_2026-01'), 'гостьові дані не чіпаємо');
-// з 1.19.0 після виходу діє локальний профіль з усіма функціями: поріг PIT рахується з ЙОГО місяців (лише січень), а не з акаунта
-assert.equal(getEl('rowPitExtra').classList.contains('hidden'), true, 'після виходу додаткового PIT акаунта немає');
-assert.equal(getEl('rowPitYtd').classList.contains('hidden'), false, 'локальний профіль показує свою базу PIT з початку року');
-assert.equal(getEl('pitYtdNote').innerText, dict.uk.pitYtdNote.replace('{found}', 1).replace('{expected}', 11), 'з 11 місяців року в локальному профілі збережено 1');
-await sleep(80);
-assert.equal(getEl('statsCountVal').textContent, '1 / 12', 'після виходу вкладка «Статистика» показує дані гостя, а не акаунта');
+for (const id of allIds) assert.deepEqual(JSON.parse(store.get(`guest_month_${id}`)), dataOf(id), `${id}: місяць акаунта скопійовано в профіль`);
+assert.equal(store.get('guest_month_2025-05'), '{"baseSalary":"5100"}', 'місяць, якого немає в хмарі, лишається');
+assert.equal(JSON.parse(store.get('user_profile_guest')).extraDeduction, 36.7, 'налаштування акаунта — у профілі');
+assert.equal(JSON.parse(store.get('profiles_v1')).list[0].cloud, undefined, 'профіль став локальним');
+assert.equal(getEl('netResult').innerText, money(resDec.net - expectedExtra), 'після виходу ті самі числа, зокрема поріг PIT');
+assert.equal(getEl('rowPitExtra').classList.contains('hidden'), false);
+window.switchPage(3); await sleep(80);
+assert.equal(getEl('statsCountVal').textContent, '12 / 12', 'після виходу статистика — з локальних місяців профілю');
+assert.equal(getEl('statsNetVal').textContent, money(sumNet));
 window.switchPage(1);
 
 // 6. Банер нової версії: подія від sw-register показує, «Пізніше» ховає, «Оновити» перезавантажує

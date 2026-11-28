@@ -22,6 +22,17 @@ const firebaseConfig = {
   appId: "1:412323283290:web:b4706af670a57776333363"
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+/* Окремий екземпляр Firebase на кожен підключений профіль (js/profiles.js, поле cloud.appName). getAuth() зберігає сесію
+   на пристрої окремо для кожного appName, тож вхід і вихід в одному екземплярі не чіпають інші. DEFAULT_APP — екземпляр
+   за замовчуванням: ним користувалися версії до 1.21.0 (з нього переноситься наявний вхід). */
+export const DEFAULT_APP = '[DEFAULT]';
+const instances = new Map();
+export function instance(appName = DEFAULT_APP) {
+  let found = instances.get(appName);
+  if (!found) {
+    const app = appName === DEFAULT_APP ? initializeApp(firebaseConfig) : initializeApp(firebaseConfig, appName);
+    found = { auth: getAuth(app), db: getFirestore(app) };
+    instances.set(appName, found);
+  }
+  return found;
+}

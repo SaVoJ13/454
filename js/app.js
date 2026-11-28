@@ -9,22 +9,24 @@ import { saveMonthCache, loadMonthCache, clearMonthCache, listMonthCache } from 
 import { pitBaseOf, pitExtra, yearToDate } from './pit.js';
 import { collectPeriodStats, readGuestRecords, availableYears, normalizePeriod } from './stats.js';
 import { drawIncomeChart, drawMixChart, drawMixLegend } from './charts.js';
-import { ensureProfiles, activeProfile, displayName, profileStorage, createProfile, renameProfile, deleteProfile, setActiveProfile, checkName, isFirstRun, hasLocalProfileData, DEFAULT_ID, PROFILES_KEY } from './profiles.js';
+import { ensureProfiles, activeProfile, displayName, profileStorage, createProfile, renameProfile, deleteProfile, setActiveProfile, checkName, isFirstRun, DEFAULT_ID, DEFAULT_APP, appNameFor, setProfileCloud, createCloudProfile } from './profiles.js';
 
 /* Лише для тестів: tests/cloud.mjs підставляє фейковий Firebase і короткий таймаут. У браузері не задано. */
 const TEST = globalThis.__salaryTest || {};
 const SAVE_TIMEOUT_MS = () => TEST.saveTimeoutMs ?? 15000;
 
 /* ХМАРА (Firebase) — опційна й не блокує старт.
-   Спершу застосунок стартує як гостьовий (працює офлайн), Firebase підвантажується у фоні
-   (initCloud). Якщо CDN недоступний, auth лишається заглушкою { currentUser: null }, а спроба
-   повторюється при події online або при натисканні «Увійти» / «Реєстрація». */
-let auth = { currentUser: null }, db = null;
+   Спершу застосунок показує дані з пристрою (працює офлайн), Firebase підвантажується у фоні (initCloud). Якщо CDN
+   недоступний, спроба повторюється при події online або при натисканні «Увійти» / «Створити акаунт».
+   Кожен підключений профіль (profiles_v1, поле cloud) має власний екземпляр Firebase (cloudApi.instance(appName)) зі своєю
+   сесією; перемикання профілів нічого не підписує й пароля не питає. */
+let cloudApi = null;                 // модуль js/firebase.js після завантаження
 let signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail;
 let doc, setDoc, getDoc, collection, getDocs;
-let cloudAvailable = false;
 let cloudPromise = null;
-let guestReady = false;
+const subscribed = new Set();        // appName, на чиї зміни сесії вже підписані
+const knownSessions = new Set();     // appName, для яких Firebase уже повідомив стан сесії (є вхід чи ні)
+let busyApp = null;                  // appName, з яким зараз працює вхід / вихід — його події обробляє сама дія
 
 function withTimeout(p, ms) {
   let t;
@@ -33,23 +35,64 @@ function withTimeout(p, ms) {
 }
 
 function initCloud() {
-  if (cloudAvailable) return Promise.resolve(true);
+  if (cloudApi) return Promise.resolve(true);
   if (cloudPromise) return cloudPromise;
   cloudPromise = withTimeout(TEST.cloudLoader ? TEST.cloudLoader() : import('./firebase.js'), 15000)
     .then(m => {
-      ({ auth, db, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
+      ({ signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
          doc, setDoc, getDoc, collection, getDocs } = m);
-      cloudAvailable = true;
-      m.onAuthStateChanged(m.auth, user => {
-        // Перший виклик з null після гостьового старту нічого не змінює — пропускаємо
-        if (!user && guestReady && !signedIn) return;
-        return handleAuthState(user);
-      });
+      cloudApi = m;
+      subscribe(DEFAULT_APP);                         // наявний вхід версій до 1.21.0 переноситься в окремий профіль
+      profiles.list.forEach(p => { if (p.cloud) subscribe(p.cloud.appName); });
+      renderCloud();
       return true;
     })
-    .catch(err => { console.warn('Firebase недоступний:', err); cloudPromise = null; return false; });
+    .catch(err => {
+      console.warn('Firebase недоступний:', err); cloudPromise = null;
+      if (activeCloud()) markSync(false, activeCloud().uid);
+      return false;
+    });
   return cloudPromise;
 }
+
+function subscribe(appName) {
+  if (!cloudApi || subscribed.has(appName)) return;
+  subscribed.add(appName);
+  cloudApi.onAuthStateChanged(cloudApi.instance(appName).auth, user => onSession(appName, user));
+}
+
+/* Зміна сесії одного екземпляра: перенесення старого входу або перезавантаження активного профілю, якщо це його екземпляр. */
+function onSession(appName, user) {
+  knownSessions.add(appName);
+  if (busyApp === appName) return;
+  if (appName === DEFAULT_APP && user && !profiles.list.some(p => p.cloud && p.cloud.uid === user.uid)) return migrateDefaultSession(user);
+  const c = activeCloud();
+  if (c && c.appName === appName) return showActiveProfile();
+}
+
+/* Вхід, що був у версіях до 1.21.0 (екземпляр [DEFAULT]): окремий новий профіль цього акаунта, без повторного входу.
+   Локальні профілі не змінюються й не зливаються з хмарою. */
+function migrateDefaultSession(user) {
+  const t = dict[currentLang];
+  const r = createCloudProfile(localStorage, { uid: user.uid, email: user.email || '', appName: DEFAULT_APP }, t.cloudSuffix, t.secProfile);
+  if (!r.ok) return;
+  profiles = r.state; profileEdit = null; profileDeleteId = null;
+  setFirstRun(false);
+  carryInWarned.clear();
+  return showActiveProfile();
+}
+
+const activeCloud = () => activeProfile(profiles).cloud || null;
+const cloudUid = () => { const c = activeCloud(); return c ? c.uid : null; };
+const dbOf = c => cloudApi.instance(c.appName).db;
+/* Сесія підключення c: є вхід саме цього uid у його екземплярі. */
+function liveUser(c) {
+  if (!c || !cloudApi || !subscribed.has(c.appName)) return null;
+  const user = cloudApi.instance(c.appName).auth.currentUser;
+  return user && user.uid === c.uid ? user : null;
+}
+/* Firebase повідомив, що входу для цього профілю більше немає (сесію скасовано чи стерто). */
+const sessionExpired = c => !!c && !!cloudApi && knownSessions.has(c.appName) && !liveUser(c);
 
 window.addEventListener('online', () => { initCloud(); });
 
@@ -71,26 +114,27 @@ function authMsg(e) {
 }
 
 let currentLang = localStorage.getItem('lang') || (navigator.language && navigator.language.toLowerCase().startsWith('pl') ? 'pl' : 'uk');
-/* signedIn — є вхід в акаунт: хмарні кнопки, auth-container, sync-container, [data-cloud-only].
-   fullFeatures — усі функції (відпустка, L4, донорство, поважна відсутність, поріг PIT, статистика з порогом):
+/* fullFeatures — усі функції (відпустка, L4, донорство, поважна відсутність, поріг PIT, статистика з порогом):
    тепер і для локального профілю, і для акаунта. Саме його отримує compute() як isPremium. */
-let signedIn = false;
 let fullFeatures = true;
 let currentActivePage = 1;
 let requestCounter = 0;
 let monthsCollectionCache = null;
+let profileGen = 0;          // росте щоразу, коли показуємо інший профіль чи інший стан його сесії: застарілі відповіді відкидаються
+let loadedUid = null;        // uid, для якого місяць уже завантажено (без цього «Зберегти місяць» не пише в хмару)
 const DEFAULT_PROFILE = () => ({ baseSalary: 5750, under26: 'no', ppk: 'no', insurance: 'yes' });   // коли збережених налаштувань немає
 /* Форма нового профілю («+» і перший запуск): відрахування явно 0. Старі записи без extraDeduction рахує deductionOf(). */
 const NEW_PROFILE = () => ({ ...DEFAULT_PROFILE(), insurance: 'no', extraDeduction: 0 });
 let userProfile = DEFAULT_PROFILE();
 window.cachedL4DailyRate = null;
 
-/* ЛОКАЛЬНІ ПРОФІЛІ (js/profiles.js). Дані гостя — у сховищі активного профілю; поки є вхід в акаунт, профілі не діють.
+/* ПРОФІЛІ (js/profiles.js). Локальний профіль — дані в його сховищі; підключений (cloud) — хмара його акаунта з копією monthcache.
    Перший запуск (на пристрої немає ні локальних даних, ні слідів акаунта): екран «Вітаємо!» без нижнього меню. Доки профіль
    не створено, profiles_v1 не записується (список лише в пам'яті), тож закритий до створення застосунок покаже екран знову. */
 let firstRun = isFirstRun(localStorage);
 const MEMORY_PROFILES = () => ({ active: DEFAULT_ID, list: [{ id: DEFAULT_ID, name: '', createdAt: '', autoName: true }] });
-let profiles = firstRun ? MEMORY_PROFILES() : ensureProfiles(localStorage);
+const recoveredName = n => dict[currentLang].profileRecovered.replace('{n}', n);
+let profiles = firstRun ? MEMORY_PROFILES() : ensureProfiles(localStorage, new Date(), recoveredName);
 /* Показувана назва: автоматична («Мій профіль» / «Mój profil») — мовою інтерфейсу, тож змінюється разом із мовою. */
 const profileLabel = p => displayName(p, dict[currentLang].profileDefaultName);
 const guestStore = () => profileStorage(localStorage, profiles.active);
@@ -99,29 +143,31 @@ const guestMonthKey = monthVal => `guest_month_${monthVal}`;
 
 /* ПРОФІЛЬ ТА МЕНЮ ПРИВ'ЯЗКА ДО АКАУНТУ */
 
+const parseSettings = raw => { try { const v = JSON.parse(raw); return v && typeof v === 'object' ? v : null; } catch (e) { return null; } };
+const accountProfileKey = uid => `user_profile_${uid}`;
+const accountProfileRef = (c) => doc(dbOf(c), "users", c.uid, "profile", "userProfile");
+
 async function loadProfile() {
-  const uid = auth.currentUser ? auth.currentUser.uid : 'guest';
-  const localKey = `user_profile_${uid}`;
-  userProfile = DEFAULT_PROFILE();
-  if (auth.currentUser) {
-    try {
-      const profSnap = await getDoc(doc(db, "users", uid, "profile", "userProfile"));
-      if (profSnap.exists()) {
-        userProfile = { ...userProfile, ...profSnap.data() };
-        localStorage.setItem(localKey, JSON.stringify(userProfile));
-      } else {
-        const savedLocal = localStorage.getItem(localKey);
-        if (!savedLocal) userProfile = NEW_PROFILE();     // у хмарі профілю ще немає й копії теж — як новий: відрахування 0
-        else try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
-      }
-    } catch(e) {
-      const savedLocal = localStorage.getItem(localKey);
-      if (savedLocal) try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
-    }
+  const gen = profileGen, c = activeCloud();
+  let next = DEFAULT_PROFILE();
+  if (c) {
+    const key = accountProfileKey(c.uid);
+    const fromCopy = () => { const saved = parseSettings(localStorage.getItem(key)); if (saved) next = { ...next, ...saved }; return saved; };
+    if (liveUser(c)) {
+      try {
+        const snap = await getDoc(accountProfileRef(c));
+        if (gen !== profileGen) return;
+        if (snap.exists()) {
+          next = { ...next, ...snap.data() };
+          localStorage.setItem(key, JSON.stringify(next));
+        } else if (!fromCopy()) next = NEW_PROFILE();     // у хмарі профілю ще немає й копії теж — як новий: відрахування 0
+      } catch (e) { if (gen !== profileGen) return; fromCopy(); }
+    } else fromCopy();
   } else {
-    const savedLocal = guestStore().getItem(GUEST_PROFILE_KEY);           // налаштування активного локального профілю
-    if (savedLocal) try { userProfile = { ...userProfile, ...JSON.parse(savedLocal) }; } catch(e) {}
+    const saved = parseSettings(guestStore().getItem(GUEST_PROFILE_KEY));   // налаштування активного локального профілю
+    if (saved) next = { ...next, ...saved };
   }
+  userProfile = next;
   fillProfileForm(firstRun ? NEW_PROFILE() : userProfile);
 }
 
@@ -170,39 +216,39 @@ document.getElementById('profExtraDeduction').addEventListener('input', () => {
   if (deductionError) showDeductionError(checkDeduction(document.getElementById('profExtraDeduction').value).error);
 });
 
-/* «Зберегти» на вкладці «Профіль»: назва (локальний профіль) і налаштування разом.
+/* «Зберегти» на вкладці «Профіль»: назва й налаштування разом.
    Звичайний режим — перейменування (якщо назву змінили) і налаштування активного профілю; «+» — новий профіль, що одразу стає
-   активним; перший запуск — перший профіль. Поки є вхід в акаунт, назви немає: зберігаються лише налаштування (як у 1.19.1).
-   Помилка назви чи суми відрахування — нічого не зберігається. */
+   активним; перший запуск — перший профіль. Помилка назви чи суми відрахування — нічого не зберігається. */
 async function saveProfileForm() {
   const deduction = checkDeduction(document.getElementById('profExtraDeduction').value);
   showDeductionError(deduction.error);
-  const kind = signedIn ? 'account' : profileEdit ? profileEdit.kind : 'edit';
+  const kind = profileEdit ? profileEdit.kind : 'edit';
   const nameText = document.getElementById('profileName').value;
-  const name = kind === 'account' ? { ok: true } : checkName(profiles, nameText, kind === 'add' ? null : profiles.active);
+  const name = checkName(profiles, nameText, kind === 'add' ? null : profiles.active);
   showProfileNameError(name.ok ? null : name.error === 'duplicate' ? 'duplicate' : 'length');
   if (!deduction.ok || !name.ok) return;                          // з помилкою нічого не зберігається
-  const settings = { ...userProfile, ...settingsFromForm(deduction.value) };
+  const settings = { ...(kind === 'edit' ? userProfile : {}), ...settingsFromForm(deduction.value) };
   if (kind === 'first') return createFirstProfile(nameText, settings);
   if (kind === 'add') return createAnotherProfile(nameText, settings);
-  if (kind === 'edit') {
-    const renamed = renameProfile(localStorage, profiles.active, nameText);
-    if (renamed.ok) {
-      profiles = renamed.state; renderProfiles();
-      document.getElementById('profileName').value = profileLabel(activeProfile(profiles));   // збережена назва (без пробілів по краях)
-    }
+  const renamed = renameProfile(localStorage, profiles.active, nameText);
+  if (renamed.ok) {
+    profiles = renamed.state; renderProfiles(); renderCloud();
+    document.getElementById('profileName').value = profileLabel(activeProfile(profiles));   // збережена назва (без пробілів по краях)
   }
   userProfile = settings;
   showProfileDeduction();
-  const uid = auth.currentUser ? auth.currentUser.uid : 'guest';
-  if (auth.currentUser) localStorage.setItem(`user_profile_${uid}`, JSON.stringify(userProfile));
+  const c = activeCloud(), gen = profileGen;
+  if (c) localStorage.setItem(accountProfileKey(c.uid), JSON.stringify(userProfile));
   else guestStore().setItem(GUEST_PROFILE_KEY, JSON.stringify(userProfile));
   let profileCloudFailed = false;
-  if (auth.currentUser) {
-    try { await setDoc(doc(db, "users", uid, "profile", "userProfile"), userProfile, { merge: true }); } catch(e) { profileCloudFailed = true; }
+  if (c) {
+    if (!liveUser(c)) profileCloudFailed = true;
+    else try { await withTimeout(setDoc(accountProfileRef(c), userProfile, { merge: true }), SAVE_TIMEOUT_MS()); } catch (e) { profileCloudFailed = true; }
   }
+  if (gen !== profileGen) return;
   const monthVal = document.getElementById('monthSelect').value;
-  if (!(auth.currentUser ? localStorage : guestStore()).getItem(guestMonthKey(monthVal)) && (!auth.currentUser || !monthsCollectionCache?.some(d => d.id === monthVal))) {
+  const savedMonth = c ? !!(monthsCollectionCache?.some(d => d.id === monthVal) || loadMonthCache(localStorage, c.uid, monthVal)) : !!guestStore().getItem(guestMonthKey(monthVal));
+  if (!savedMonth) {
     applyProfileToMain();
   }
   await updateYtdCache(monthVal);        // вік до 26 років змінює, чи діє поріг
@@ -460,8 +506,9 @@ function syncSchedule() {
    Акаунт — хмара; cached: місяці, яких бракує в хмарі (масив id або 'all' — усі локальні копії), доповнюються копіями. */
 const localRecords = () => readGuestRecords(guestStore());
 async function sourceRecords({ cached = [] } = {}) {
-  if (!auth.currentUser) return localRecords();
-  const uid = auth.currentUser.uid, records = {};
+  const uid = cloudUid();
+  if (!uid) return localRecords();
+  const records = {};
   (await getCachedMonths()).forEach(d => { records[d.id] = d.data; });
   for (const id of cached === 'all' ? listMonthCache(localStorage, uid) : cached) {     // хмара недоступна/неповна — доповнюємо локальними копіями
     if (!records[id]) { const c = loadMonthCache(localStorage, uid, id); if (c) records[id] = c.data; }
@@ -469,41 +516,42 @@ async function sourceRecords({ cached = [] } = {}) {
   return records;
 }
 
+async function readCloudMonths(c) {
+  const snaps = await getDocs(collection(dbOf(c), "users", c.uid, "months"));
+  const docs = []; snaps.forEach(docSnap => docs.push({ id: docSnap.id, data: docSnap.data() }));
+  return docs;
+}
+
 async function getCachedMonths() {
   if (monthsCollectionCache) return monthsCollectionCache;
-  if (!auth.currentUser) return [];
+  const c = activeCloud(), gen = profileGen;
+  if (!liveUser(c)) return [];
   try {
-    const snaps = await getDocs(collection(db, "users", auth.currentUser.uid, "months"));
-    const docs = []; snaps.forEach(docSnap => docs.push({ id: docSnap.id, data: docSnap.data() }));
+    const docs = await readCloudMonths(c);
+    if (gen !== profileGen) return [];
     monthsCollectionCache = docs; return docs;
   } catch (e) { return []; }
 }
 
-async function handleAuthState(user) {
-  requestCounter++; monthsCollectionCache = null;
-  signedIn = !!user; signedInEmail = user ? user.email : '';
-  fullFeatures = true;                 // і локальний профіль, і акаунт
-  syncState = user ? 'pending' : null;
-  // Перший запуск: вхід його закриває (дані беруться з хмари); після виходу він знову потрібен, лише якщо локального профілю досі немає.
-  if (user) setFirstRun(false);
-  else if (guestReady) setFirstRun(!hasLocalProfileData(localStorage));
-  if (!firstRun && !localStorage.getItem(PROFILES_KEY) && !user) profiles = ensureProfiles(localStorage);
-  document.getElementById('app-body').classList.toggle('is-logged-in', signedIn);
+/* Показати активний профіль з його джерела даних: після старту, перемикання, підключення, виходу й змін сесії. */
+async function showActiveProfile() {
+  const gen = ++profileGen;
+  requestCounter++; monthsCollectionCache = null; loadedUid = null;
+  const c = activeCloud();
+  syncState = c ? 'pending' : null; lastSyncAt = 0;
+  window.cachedL4DailyRate = null; ytdState = { monthVal: '', prev: 0, found: 0, expected: 0 };
+  document.getElementById('app-body').classList.toggle('is-logged-in', !!c);
   document.getElementById('app-body').classList.toggle('full-features', fullFeatures);
-  document.getElementById('auth-container').classList.toggle('hidden', signedIn);
-  document.getElementById('sync-container').classList.toggle('hidden', !signedIn);
-  document.getElementById('cloudSheet').setAttribute('aria-labelledby', signedIn ? 'cloudInTitle' : 'cloudOutTitle');
-  document.querySelectorAll('[data-cloud-only]').forEach(el => el.classList.toggle('hidden', !signedIn));
-  if (!user) showLoginScreen();
-  if (profileEdit && profileEdit.kind === 'add') profileEdit = null;    // «+» не переживає входу чи виходу
+  document.querySelectorAll('[data-cloud-only]').forEach(el => el.classList.toggle('hidden', !c));
+  if (c) subscribe(c.appName);
+  if (gen !== profileGen) return;                      // підписка одразу повідомила стан сесії й уже показала профіль
+  if (!c || sessionExpired(c)) showLoginScreen(c);
+  if (c) clearInputs();                                // поля попереднього профілю не мають потрапити в цей акаунт
   renderProfiles(); renderCloud();
   await loadProfile();
-  if (user) {
-    document.getElementById('user-email-display').innerText = user.email;
-    await loadCloudData();
-  } else {
-    await loadLocalData();
-  }
+  if (gen !== profileGen) return;
+  if (c) await loadCloudData(); else await loadLocalData();
+  if (gen !== profileGen) return;
   calculateSalary();
   resetStatsView();
 }
@@ -527,26 +575,34 @@ function fillFrom(d) {
 }
 
 async function handleSyncUp() {
-  if (!auth.currentUser) return;
+  const c = activeCloud();
+  if (!c) return;
   const monthVal = document.getElementById('monthSelect').value;
   if (!monthVal) return showToast(dict[currentLang].toastSelectMonth);
-  if (navigator.onLine === false) { markSync(false); return showToast(dict[currentLang].toastSaveOffline); }   // setDoc без мережі висить без відповіді
+  if (navigator.onLine === false) { markSync(false, c.uid); return showToast(dict[currentLang].toastSaveOffline); }   // setDoc без мережі висить без відповіді
+  if (!liveUser(c)) {
+    if (sessionExpired(c)) return showToast(dict[currentLang].cloudExpired.replace('{email}', c.email).replace('{name}', profileLabel(activeProfile(profiles))));
+    markSync(false, c.uid); return showToast(dict[currentLang].toastSaveOffline);
+  }
+  if (loadedUid !== c.uid) return showToast(dict[currentLang].toastStillLoading);
   const saveBtns = document.querySelectorAll('[data-sync-up]');
   saveBtns.forEach(b => { b.disabled = true; });
   const data = collectMonthData({ updatedAt: new Date().toISOString() });
   try {
-    await withTimeout(setDoc(doc(db, "users", auth.currentUser.uid, "months", monthVal), data, { merge: true }), SAVE_TIMEOUT_MS());
-    const kept = keptLegacyBonusFields(loadMonthCache(localStorage, auth.currentUser.uid, monthVal)?.data);   // у хмарі їх лишає merge
-    saveMonthCache(localStorage, auth.currentUser.uid, monthVal, { ...kept, ...data });
+    await withTimeout(setDoc(doc(dbOf(c), "users", c.uid, "months", monthVal), data, { merge: true }), SAVE_TIMEOUT_MS());
+    const kept = keptLegacyBonusFields(loadMonthCache(localStorage, c.uid, monthVal)?.data);   // у хмарі їх лишає merge
+    saveMonthCache(localStorage, c.uid, monthVal, { ...kept, ...data });
+    showToast(dict[currentLang].toastSaveCloud);
+    if (cloudUid() !== c.uid) return;                  // поки зберігали, відкрили інший профіль
     if (legacyBonus && document.getElementById('monthSelect').value === monthVal) { setBonusForm(data.bonusTotalPct); calculateSalary(); }
-    showToast(dict[currentLang].toastSaveCloud); monthsCollectionCache = null; markSync(true);
-    const uid = auth.currentUser.uid;
-    const next = await withTimeout(savedCloudMonth(uid, shiftMonthId(monthVal, -1)), SAVE_TIMEOUT_MS()).catch(() => null);
+    monthsCollectionCache = null; markSync(true, c.uid);
+    const next = await withTimeout(savedCloudMonth(c.uid, shiftMonthId(monthVal, -1)), SAVE_TIMEOUT_MS()).catch(() => null);
+    if (cloudUid() !== c.uid) return;
     if (takeNextCarryInWarning(monthVal, data, next)) showToast(dict[currentLang].toastSaveCloud + '\n' + dict[currentLang].toastNextCarryIn, 8000);
     await updateL4Cache(monthVal);
   } catch (error) {
     // таймаут = немає зв'язку з хмарою (запис міг бути в черзі Firestore, повторне збереження безпечне: merge)
-    markSync(false);
+    markSync(false, c.uid);
     showToast(error && error.message === 'timeout' ? dict[currentLang].toastSaveOffline : dict[currentLang].toastSaveErr + authMsg(error));
   }
   finally { saveBtns.forEach(b => { b.disabled = false; }); }
@@ -554,20 +610,136 @@ async function handleSyncUp() {
 
 document.querySelectorAll('[data-sync-up]').forEach(b => b.addEventListener('click', handleSyncUp));
 
-/* ВХІД. Поля стоять у формі з autocomplete — так їх бачать менеджери паролів. Форма нікуди не відправляється
-   (preventDefault; CSP: form-action 'none'). Пароль застосунок не зберігає; запам'ятовуються лише адреси (js/emails.js). */
-async function login() {
+/* ВХІД І ПІДКЛЮЧЕННЯ ПРОФІЛЮ. Поля стоять у формі з autocomplete — так їх бачать менеджери паролів. Форма нікуди не
+   відправляється (preventDefault; CSP: form-action 'none'). Пароль застосунок не зберігає; запам'ятовуються лише адреси
+   (js/emails.js). Вхід належить активному профілю: його екземпляр Firebase — p_<id> (або той, що вже записаний у cloud,
+   коли сесію треба відновити). На першому запуску вхід створює профіль цього акаунта. */
+let pending = null;              // підключення, що чекає вибору «місяці з телефону / лише хмарні»
+
+async function authenticate(register) {
+  if (busyApp) return;
   if (!(await initCloud())) return showToast(dict[currentLang].toastOffline);
-  const email = document.getElementById('email').value;
+  const email = document.getElementById('email').value, password = document.getElementById('password');
+  const first = firstRun, profile = first ? null : activeProfile(profiles);
+  const profileId = first ? DEFAULT_ID : profile.id;
+  const existing = profile && profile.cloud;
+  const appName = existing ? existing.appName : appNameFor(profileId);
+  if (register) password.setAttribute('autocomplete', 'new-password');            // менеджер паролів сприймає його як новий пароль
+  busyApp = appName;
   try {
-    await signInWithEmailAndPassword(auth, email, document.getElementById('password').value);
+    subscribe(appName);
+    const { auth } = cloudApi.instance(appName);
+    await (register ? createUserWithEmailAndPassword : signInWithEmailAndPassword)(auth, email, password.value);
     rememberEmail(localStorage, email); renderKnownEmails();
-  } catch (e) { showToast(dict[currentLang].toastLoginErr + authMsg(e)); }
+    const user = auth.currentUser;
+    if (existing && user.uid !== existing.uid) {
+      await signOut(auth);
+      return showToast(dict[currentLang].errWrongAccount.replace('{email}', existing.email), 6000);
+    }
+    if (register) showToast(dict[currentLang].toastRegOk);
+    password.value = '';
+    if (existing) { busyApp = null; await showActiveProfile(); return; }
+    await connectProfile({ profileId, appName, uid: user.uid, email: user.email || '', register, first });
+  } catch (e) {
+    showToast((register ? dict[currentLang].toastRegErr : dict[currentLang].toastLoginErr) + authMsg(e));
+  } finally {
+    password.setAttribute('autocomplete', 'current-password');
+    if (!pending) busyApp = null;
+  }
 }
+
+/* Налаштування локального профілю, які отримає акаунт. */
+function localSettings(profileId, first) {
+  const saved = first ? null : parseSettings(profileStorage(localStorage, profileId).getItem(GUEST_PROFILE_KEY));
+  const p = first ? NEW_PROFILE() : { ...DEFAULT_PROFILE(), ...saved };
+  return { baseSalary: p.baseSalary, under26: p.under26, ppk: p.ppk, insurance: p.insurance, extraDeduction: deductionOf(p) };
+}
+
+/* Вхід вдалий: перевіряємо, чи акаунт вільний, і вирішуємо, що робити з локальними місяцями. Нічого на телефоні не видаляється. */
+async function connectProfile(job) {
+  const { auth } = cloudApi.instance(job.appName);
+  const other = profiles.list.find(p => p.id !== job.profileId && p.cloud && p.cloud.uid === job.uid);
+  if (other) {
+    await signOut(auth);
+    return showToast(dict[currentLang].errTaken.replace('{name}', profileLabel(other)), 6000);
+  }
+  try {
+    job.local = job.first ? {} : readGuestRecords(profileStorage(localStorage, job.profileId));
+    const remote = await withTimeout(readCloudMonths(job), SAVE_TIMEOUT_MS());
+    job.remoteIds = new Set(remote.map(d => d.id));
+    job.hasRemoteProfile = (await withTimeout(getDoc(accountProfileRef(job)), SAVE_TIMEOUT_MS())).exists();
+  } catch (e) { return abortConnect(job, e); }
+  const localCount = Object.keys(job.local).length;
+  if (localCount && job.remoteIds.size) {                       // місяці є і там, і там — питаємо в панелі
+    if (profiles.active !== job.profileId) return signOut(auth);
+    pending = job;
+    openCloudSheet(); renderCloud();
+    return;
+  }
+  const settings = job.register || (!job.first && (localCount > 0 || !job.hasRemoteProfile));
+  await finishConnect(job, { upload: Object.keys(job.local), settings });
+}
+
+async function abortConnect(job, error) {
+  pending = null;
+  try { await signOut(cloudApi.instance(job.appName).auth); } catch (e) { /* сесія лишиться невикористаною */ }
+  showToast(dict[currentLang].toastConnectErr + (error && error.message === 'timeout' ? dict[currentLang].errNetwork : authMsg(error)), 6000);
+  renderCloud();
+}
+
+/* Записує в хмару вибрані місяці (upload) і, за потреби, налаштування, потім позначає профіль підключеним. */
+async function finishConnect(job, { upload, settings }) {
+  const cloud = { uid: job.uid, email: job.email, appName: job.appName };
+  try {
+    for (const id of upload.sort()) {
+      const data = { ...job.local[id], updatedAt: job.local[id].updatedAt || new Date().toISOString() };
+      await withTimeout(setDoc(doc(dbOf(cloud), "users", job.uid, "months", id), data, { merge: true }), SAVE_TIMEOUT_MS());
+      saveMonthCache(localStorage, job.uid, id, data);
+    }
+    if (settings) {
+      const value = localSettings(job.profileId, job.first);
+      await withTimeout(setDoc(accountProfileRef(cloud), value, { merge: true }), SAVE_TIMEOUT_MS());
+      localStorage.setItem(accountProfileKey(job.uid), JSON.stringify(value));
+    }
+  } catch (e) { return abortConnect(job, e); }
+  const t = dict[currentLang];
+  const r = job.first ? createCloudProfile(localStorage, cloud, t.cloudSuffix, t.secProfile) : setProfileCloud(localStorage, job.profileId, cloud);
+  if (!r.ok) return abortConnect(job, r);
+  pending = null; busyApp = null;
+  profiles = r.state; profileEdit = null; profileDeleteId = null;
+  setFirstRun(false);
+  carryInWarned.clear();
+  await showActiveProfile();
+  if (upload.length) showToast(t.toastDataUploaded);
+}
+
+/* Вибір у панелі: «Додати місяці з телефону, яких немає в хмарі» (add) або «Залишити лише хмарні». */
+let merging = false;
+async function chooseMerge(add) {
+  if (!pending || merging) return;
+  const job = pending;
+  merging = true;
+  try {
+    const upload = add ? Object.keys(job.local).filter(id => !job.remoteIds.has(id)) : [];
+    await finishConnect(job, { upload, settings: !job.hasRemoteProfile });
+  } finally { merging = false; if (!pending) busyApp = null; }
+}
+/* «Скасувати» чи закрита панель під час вибору: тимчасовий вхід знімається, профіль лишається локальним. */
+async function cancelPending() {
+  if (!pending || merging) return;
+  const job = pending;
+  pending = null;
+  try { await signOut(cloudApi.instance(job.appName).auth); } catch (e) { /* сесія лишиться невикористаною */ }
+  busyApp = null;
+  renderCloud();
+}
+document.getElementById('btn-merge-add').addEventListener('click', () => chooseMerge(true));
+document.getElementById('btn-merge-cloud').addEventListener('click', () => chooseMerge(false));
+document.getElementById('btn-merge-cancel').addEventListener('click', cancelPending);
 
 /* Панель хмари: перемикач «Вхід | Реєстрація». Відправлення форми (кнопка «Увійти», Enter) — дія вибраного режиму. */
 let authMode = 'login';
-document.getElementById('loginForm').addEventListener('submit', e => { e.preventDefault(); return authMode === 'register' ? register() : login(); });
+document.getElementById('loginForm').addEventListener('submit', e => { e.preventDefault(); return authenticate(authMode === 'register'); });
 
 function renderAuthMode() {
   const reg = authMode === 'register';
@@ -591,24 +763,14 @@ function showPassword(on) {
 }
 document.getElementById('btn-pwd-eye').addEventListener('click', () => showPassword(document.getElementById('password').type !== 'text'));
 
-document.getElementById('btn-register').addEventListener('click', () => register());
+document.getElementById('btn-register').addEventListener('click', () => authenticate(true));
 
-async function register() {
-  if (!(await initCloud())) return showToast(dict[currentLang].toastOffline);
-  const email = document.getElementById('email').value, password = document.getElementById('password');
-  password.setAttribute('autocomplete', 'new-password');            // менеджер паролів сприймає його як новий пароль
-  try {
-    await createUserWithEmailAndPassword(auth, email, password.value);
-    rememberEmail(localStorage, email); renderKnownEmails();
-    showToast(dict[currentLang].toastRegOk);
-  } catch (e) { showToast(dict[currentLang].toastRegErr + authMsg(e)); }
-  finally { password.setAttribute('autocomplete', 'current-password'); }
-}
-
-/* Екран входу (старт гостя й вихід з акаунта): порожній пароль і остання адреса в полі. */
-function showLoginScreen() {
+/* Форма входу (старт, перемикання профілю, вихід з акаунта): порожній пароль і адреса в полі — акаунта профілю, чия
+   сесія завершилась, або остання успішна. */
+function showLoginScreen(expired = null) {
   const [last] = readKnownEmails(localStorage);
-  if (last) document.getElementById('email').value = last;
+  const email = expired ? expired.email : last;
+  if (email) document.getElementById('email').value = email;
   document.getElementById('password').value = '';
   showPassword(false); setAuthMode('login');
   renderKnownEmails();
@@ -653,6 +815,7 @@ document.getElementById('btn-reset-password').addEventListener('click', async ()
   const btn = document.getElementById('btn-reset-password');
   btn.disabled = true;
   try {
+    const { auth } = cloudApi.instance(activeCloud()?.appName || appNameFor(profiles.active));
     auth.languageCode = currentLang;                 // лист приходить мовою інтерфейсу (шаблони UA/PL — у консолі Firebase)
     await sendPasswordResetEmail(auth, email);
     lastResetAt = Date.now(); showToast(dict[currentLang].toastResetSent, 6000);
@@ -662,36 +825,75 @@ document.getElementById('btn-reset-password').addEventListener('click', async ()
   } finally { btn.disabled = false; }
 });
 
-document.getElementById('btn-logout').addEventListener('click', async () => {
-  if (!cloudAvailable || !auth.currentUser) return;
-  const uid = auth.currentUser.uid;
-  try { await signOut(auth); } catch (e) { return; }
-  // Локальна копія профілю акаунта (ставка, PPK, вік) не має лишатись на спільному пристрої.
-  // Дані локальних профілів (guest_month_*, user_profile_guest, prof_<id>__…) — окремий режим, їх не чіпаємо;
-  // після виходу знову діє активний локальний профіль (handleAuthState(null)).
-  localStorage.removeItem(`user_profile_${uid}`);
+/* ВИХІД З АКАУНТА (активний профіль підключений). Спершу місяці й налаштування акаунта копіюються в сховище цього
+   профілю (з хмари, а без мережі — з копій monthcache; місяць, що є локально, замінюється хмарним), далі signOut лише
+   його екземпляра, і профіль стає локальним. Інші профілі лишаються в своїх акаунтах; хмара не змінюється. */
+async function copyAccountToProfile(profileId, c) {
+  const months = {};
+  for (const id of listMonthCache(localStorage, c.uid)) { const copy = loadMonthCache(localStorage, c.uid, id); if (copy) months[id] = copy.data; }
+  let settings = parseSettings(localStorage.getItem(accountProfileKey(c.uid)));
+  if (navigator.onLine !== false && liveUser(c)) {
+    try { (await withTimeout(readCloudMonths(c), SAVE_TIMEOUT_MS())).forEach(d => { months[d.id] = d.data; }); } catch (e) { /* лишаються копії */ }
+    try {
+      const snap = await withTimeout(getDoc(accountProfileRef(c)), SAVE_TIMEOUT_MS());
+      if (snap.exists()) settings = snap.data();
+    } catch (e) { /* лишається копія */ }
+  }
+  if (!settings && profiles.active === profileId) settings = userProfile;
+  const store = profileStorage(localStorage, profileId);
+  for (const [id, data] of Object.entries(months)) if (/^\d{4}-\d{2}$/.test(id)) store.setItem(guestMonthKey(id), JSON.stringify(data));
+  if (settings) store.setItem(GUEST_PROFILE_KEY, JSON.stringify({ ...DEFAULT_PROFILE(), ...settings, extraDeduction: deductionOf(settings) }));
+}
+
+/* Копії акаунта на пристрої (налаштування й місяці) не мають лишатись після виходу. */
+function forgetAccountCopies(uid) {
+  localStorage.removeItem(accountProfileKey(uid));
   clearMonthCache(localStorage, uid);
-  window.cachedL4DailyRate = null; monthsCollectionCache = null;
-});
+}
+
+async function disconnectProfile() {
+  const profile = activeProfile(profiles), c = profile.cloud;
+  if (!c || busyApp) return;
+  if (!(await initCloud())) return showToast(dict[currentLang].toastOffline);
+  busyApp = c.appName;
+  try {
+    subscribe(c.appName);
+    await copyAccountToProfile(profile.id, c);          // не вдалось записати копію — з акаунта не виходимо
+    await signOut(cloudApi.instance(c.appName).auth);
+    const r = setProfileCloud(localStorage, profile.id, null);
+    if (r.ok) profiles = r.state;
+    forgetAccountCopies(c.uid);
+  } catch (e) { return showToast(dict[currentLang].toastLogoutErr); }
+  finally { busyApp = null; }
+  await showActiveProfile();
+}
+document.getElementById('btn-logout').addEventListener('click', disconnectProfile);
+document.getElementById('btn-detach').addEventListener('click', disconnectProfile);
 
 async function loadCloudData() {
-  if (!auth.currentUser) return;
+  const c = activeCloud();
+  if (!c) return;
   const monthVal = document.getElementById('monthSelect').value;
   if (!monthVal) return;
-  const uid = auth.currentUser.uid;
+  const uid = c.uid, gen = profileGen;
   const currentReq = ++requestCounter;
+  const stale = () => currentReq !== requestCounter || gen !== profileGen;
   const defaultSched = stateDaysFor(monthVal);
+  const live = !!liveUser(c);
   let snap = null;
   try {
     if (navigator.onLine === false) throw new Error('offline');   // без мережі не чекаємо таймауту Firestore
-    snap = await getDoc(doc(db, "users", uid, "months", monthVal));
+    if (!live) throw new Error('no-session');
+    snap = await getDoc(doc(dbOf(c), "users", uid, "months", monthVal));
   } catch (e) {
-    if (currentReq !== requestCounter) return false;
-    markSync(false);
-    return showCachedMonth(uid, monthVal, defaultSched);
+    if (stale()) return false;
+    // Сесія ще відновлюється (старт, перемикання) — копія без повідомлень; коли Firebase відповість, профіль перезавантажиться
+    const waiting = e.message === 'no-session' && !sessionExpired(c);
+    if (!waiting) markSync(false, uid);
+    return showCachedMonth(uid, monthVal, defaultSched, { quiet: waiting || e.message === 'no-session' });
   }
-  if (currentReq !== requestCounter) return;
-  markSync(true);
+  if (stale()) return;
+  markSync(true, uid);
   try {
     if (snap.exists()) {
       saveMonthCache(localStorage, uid, monthVal, snap.data());
@@ -700,37 +902,44 @@ async function loadCloudData() {
     } else {
       clearInputs(); applyProfileToMain();
       const prev = await savedCloudMonth(uid, shiftMonthId(monthVal, 1));
-      if (currentReq !== requestCounter) return;
+      if (stale()) return;
       autoNightCarryIn(prev);
     }
+    loadedUid = uid;
     updateVisibility(); await autoFillUrlopBonus(monthVal);
-    if (currentReq !== requestCounter) return;
+    if (stale()) return;
     await updateL4Cache(monthVal);
-    if (currentReq !== requestCounter) return;
+    if (stale()) return;
     await updateYtdCache(monthVal);
-    if (currentReq !== requestCounter) return;
+    if (stale()) return;
     calculateSalary();
     return true;
   } catch(e) { showToast(dict[currentLang].toastLoadErr); return false; }
 }
 
-/* Мережі немає (або Firestore не відповів): показуємо останню локальну копію місяця.
-   Повертає 'cache', якщо копія є, інакше false (з тостом про помилку). */
-async function showCachedMonth(uid, monthVal, defaultSched) {
+/* Мережі немає (або Firestore не відповів): показуємо останню локальну копію місяця, а без копії — порожній місяць (щоб не
+   лишились поля іншого місяця чи профілю). Повертає 'cache', якщо копія є, інакше false (з тостом, якщо не quiet). */
+async function showCachedMonth(uid, monthVal, defaultSched, { quiet = false } = {}) {
   const cached = loadMonthCache(localStorage, uid, monthVal);
-  if (!cached) { showToast(dict[currentLang].toastLoadErr); return false; }
+  loadedUid = uid;
+  if (!cached) {
+    clearInputs(); applyProfileToMain(); updateVisibility();
+    await updateYtdCache(monthVal); calculateSalary();
+    if (!quiet) showToast(dict[currentLang].toastLoadErr);
+    return false;
+  }
   fillFrom(cached.data);
   if (!cached.data.scheduleDays) document.getElementById('scheduleDays').value = defaultSched;
   updateVisibility(); await updateYtdCache(monthVal); calculateSalary();
   const when = new Date(cached.savedAt).toLocaleDateString(currentLang === 'pl' ? 'pl-PL' : 'uk-UA');
-  showToast(dict[currentLang].toastLoadCached + when);
+  if (!quiet || navigator.onLine === false) showToast(dict[currentLang].toastLoadCached + when);
   return 'cache';
 }
 
 document.getElementById('btn-sync-down').addEventListener('click', async () => { if (await loadCloudData() === true) showToast(dict[currentLang].toastLoadCloud); });
 
 function saveLocalGuestData() {
-  if (auth.currentUser) return;
+  if (activeCloud()) return;                            // дані підключеного профілю зберігає «Зберегти місяць» у хмару
   const monthVal = document.getElementById('monthSelect').value;
   if (!monthVal) return;
   const store = guestStore(), key = guestMonthKey(monthVal);
@@ -755,7 +964,7 @@ function loadLocalGuestData() {
 /* Місяць локального профілю разом із тим, що для акаунта робить loadCloudData: «Сер. за 1 дн.», ставка L4, поріг PIT. */
 async function loadLocalData() {
   const monthVal = document.getElementById('monthSelect').value;
-  if (!monthVal || auth.currentUser) return;
+  if (!monthVal || activeCloud()) return;
   const currentReq = ++requestCounter;
   loadLocalGuestData();
   await autoFillUrlopBonus(monthVal);
@@ -806,11 +1015,12 @@ async function getAutoDailyUrlopBonus(currentMonthVal) {
 }
 
 async function autoFillUrlopBonus(monthVal) {
+  const gen = profileGen;
   const vacDays = Math.max(0, parseInt(document.getElementById('vacationDays').value) || 0);
   const urlopInput = document.getElementById('urlopBonus');
   if (fullFeatures && vacDays > 0 && (!urlopInput.value || parseFloat(urlopInput.value) === 0)) {
     const autoDaily = await getAutoDailyUrlopBonus(monthVal);
-    if (autoDaily > 0) urlopInput.value = autoDaily.toFixed(2);
+    if (autoDaily > 0 && gen === profileGen) urlopInput.value = autoDaily.toFixed(2);
   }
 }
 
@@ -820,7 +1030,8 @@ let ytdState = { monthVal: '', prev: 0, found: 0, expected: 0 };
 async function updateYtdCache(monthVal) {
   const [y, m] = monthVal.split('-');
   const yearIds = Array.from({ length: parseInt(m) - 1 }, (_, j) => `${y}-${String(j + 1).padStart(2, '0')}`);
-  ytdState = yearToDate(await sourceRecords({ cached: yearIds }), monthVal, userProfile);
+  const gen = profileGen, records = await sourceRecords({ cached: yearIds });
+  if (gen === profileGen) ytdState = yearToDate(records, monthVal, userProfile);
 }
 
 async function updateL4Cache(currentMonthVal) {
@@ -832,7 +1043,9 @@ async function updateL4Cache(currentMonthVal) {
     targetMonths.push(pYear + "-" + String(pMonth).padStart(2, '0'));
   }
   try {
+    const gen = profileGen;
     const records = await sourceRecords();
+    if (gen !== profileGen) return;
     let totalNetBase = 0; let monthsFound = 0;
     Object.keys(records).forEach(id => {
       if (targetMonths.includes(id)) {
@@ -1060,7 +1273,7 @@ appBody.addEventListener('change', e => {
   const id = e.target.id;
   if (id === 'monthSelect') {
     document.getElementById('scheduleDays').value = stateDaysFor(e.target.value);
-    if (auth.currentUser) loadCloudData(); else return loadLocalData();
+    if (activeCloud()) loadCloudData(); else return loadLocalData();
   } else if (isMonthField(e.target)) {
     leaveLegacyBonus(id);
     calculateSalary(); saveLocalGuestData();
@@ -1074,7 +1287,7 @@ function toggleCarry(id) {
   if (id === 'nightCarryIn') document.getElementById('nightCarryInHint').classList.add('hidden');   // далі це вибір користувача
   leaveLegacyBonus(id);
   calculateSalary(); saveLocalGuestData();
-  if (id === 'nightCarryOut' && !auth.currentUser) warnGuestNextCarryIn();
+  if (id === 'nightCarryOut' && !activeCloud()) warnGuestNextCarryIn();
 }
 for (const id of CARRY_IDS) document.getElementById(id).addEventListener('click', () => toggleCarry(id));
 
@@ -1101,48 +1314,41 @@ document.getElementById('themeSwitch').addEventListener('click', () => window.se
    Видалення — у два кроки на сторінці (без alert/confirm/prompt). */
 let profileEdit = null;          // null | { kind: 'add' } | { kind: 'first' } (перший запуск)
 let profileDeleteId = null;      // профіль, видалення якого чекає підтвердження
-let signedInEmail = '';
 
 function renderProfiles() {
   const t = dict[currentLang];
   const kind = profileEdit ? profileEdit.kind : null;
-  document.getElementById('profilesSignedIn').classList.toggle('hidden', !signedIn);
-  document.getElementById('profilesSignedIn').innerText = signedIn ? t.profilesSignedIn.replace('{email}', signedInEmail) : '';
-  // Поки є вхід — одна «пігулка» з email акаунта; локальні профілі неактивні.
-  document.getElementById('profileList').replaceChildren(...(signedIn
-    ? [profilePill(signedInEmail, true, null)]
-    : profiles.list.map(p => profilePill(profileLabel(p), p.id === profiles.active && kind !== 'add', p.id))));
-  document.getElementById('btn-profile-add').classList.toggle('hidden', signedIn);
+  document.getElementById('profileList').replaceChildren(...profiles.list.map(p => profilePill(profileLabel(p), p.id === profiles.active && kind !== 'add', p.id, !!p.cloud)));
   document.getElementById('btn-profile-add').setAttribute('aria-pressed', String(kind === 'add'));
-  document.getElementById('profileNameRow').classList.toggle('hidden', signedIn);
-  document.getElementById('secProfileLabel').classList.toggle('hidden', signedIn);
-  if (signedIn) showProfileNameError(null);
-  if (profiles.list.length <= 1 || signedIn) profileDeleteId = null;
+  if (profiles.list.length <= 1) profileDeleteId = null;
   const target = profiles.list.find(p => p.id === profileDeleteId);
-  document.getElementById('btn-profile-delete').classList.toggle('hidden', signedIn || !!kind || profiles.list.length <= 1);
+  document.getElementById('btn-profile-delete').classList.toggle('hidden', !!kind || profiles.list.length <= 1);
   document.getElementById('btn-profile-cancel').classList.toggle('hidden', kind !== 'add');
   document.getElementById('profileDelete').classList.toggle('hidden', !target);
-  document.getElementById('profileDeleteText').innerText = target ? t.profileDeleteConfirm.replace('{name}', profileLabel(target)) : '';
+  document.getElementById('profileDeleteText').innerText = !target ? '' : target.cloud
+    ? t.profileDeleteCloudConfirm.replace('{name}', profileLabel(target)).replace('{email}', target.cloud.email)
+    : t.profileDeleteConfirm.replace('{name}', profileLabel(target));
   document.getElementById('profileFoot').classList.toggle('hidden', !!target);
   document.getElementById('btn-save-profile').textContent = kind === 'first' ? t.firstCreate : t.profileNameSave;
   document.getElementById('btn-save-profile').classList.toggle('wide', kind === 'first');
   // Поле «Назва»: назва активного профілю (інший профіль або автоназва іншою мовою — оновлюємо; введене до «Зберегти» не чіпаємо)
   const nameInput = document.getElementById('profileName'), active = activeProfile(profiles);
-  if (!signedIn && !kind && (nameInput.dataset.profileId !== profiles.active || active.autoName)) nameInput.value = profileLabel(active);
+  if (!kind && (nameInput.dataset.profileId !== profiles.active || active.autoName)) nameInput.value = profileLabel(active);
   nameInput.dataset.profileId = kind ? '' : profiles.active;
   renderWho();
 }
 
-/* Під назвою застосунку в шапці: назва активного локального профілю або email акаунта (на першому запуску — нічого). */
+/* Під назвою застосунку в шапці: назва активного профілю (на першому запуску — нічого). */
 function renderWho() {
   const el = document.getElementById('whoBadge');
-  const text = signedIn ? signedInEmail : firstRun ? '' : profileLabel(activeProfile(profiles));
+  const text = firstRun ? '' : profileLabel(activeProfile(profiles));
   el.textContent = text;
   el.setAttribute('title', text);
 }
 
-/* «Пігулка»: коло з першою літерою + назва. id = null — пігулка акаунта (нічого не перемикає). */
-function profilePill(name, active, id) {
+/* «Пігулка»: коло з першою літерою + назва; у підключеного профілю — маленька хмара після назви. */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function profilePill(name, active, id, connected) {
   const make = (tag, className, text) => { const el = document.createElement(tag); el.className = className; if (text !== undefined) el.textContent = text; return el; };
   const letter = [...String(name).trim()][0];
   const btn = make('button', 'prof-pill'), ini = make('span', 'prof-ini', letter ? letter.toLocaleUpperCase() : '?'), label = make('span', 'prof-name', name);
@@ -1151,7 +1357,13 @@ function profilePill(name, active, id) {
   btn.setAttribute('aria-pressed', String(active));
   btn.setAttribute('title', name);
   btn.appendChild(ini); btn.appendChild(label);
-  if (id) btn.addEventListener('click', () => (id === profiles.active ? closeProfilePanels() : switchProfile(id)));
+  if (connected) {
+    const svg = document.createElementNS(SVG_NS, 'svg'), use = document.createElementNS(SVG_NS, 'use');
+    svg.setAttribute('class', 'icon pill-cloud'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', dict[currentLang].ariaCloudProfile);
+    use.setAttribute('href', '#i-cloud');
+    svg.appendChild(use); btn.appendChild(svg);
+  }
+  btn.addEventListener('click', () => (id === profiles.active ? closeProfilePanels() : switchProfile(id)));
   return btn;
 }
 
@@ -1165,7 +1377,7 @@ function showProfileNameError(error) {
 
 /* «+»: та сама форма з порожньою назвою й налаштуваннями нового профілю. */
 function openAddProfile() {
-  if (signedIn || firstRun) return;
+  if (firstRun) return;
   profileEdit = { kind: 'add' }; profileDeleteId = null;
   const input = document.getElementById('profileName');
   input.value = '';
@@ -1190,18 +1402,13 @@ async function applyProfiles(state, { force = false } = {}) {
   const wasAdding = !!(profileEdit && profileEdit.kind === 'add');
   profiles = state; profileEdit = null; profileDeleteId = null;
   renderProfiles();
-  if (wasAdding && !changed && !signedIn) fillProfileForm(userProfile);
-  if (!changed || signedIn) return;
+  if (wasAdding && !changed) fillProfileForm(userProfile);
+  if (!changed) return;
   carryInWarned.clear();
-  window.cachedL4DailyRate = null; ytdState = { monthVal: '', prev: 0, found: 0, expected: 0 };
-  await loadProfile();
-  await loadLocalData();
-  calculateSalary();
-  resetStatsView();
+  await showActiveProfile();
 }
 
 async function switchProfile(id) {
-  if (signedIn) return;
   const r = setActiveProfile(localStorage, id);
   if (r.ok) await applyProfiles(r.state);
 }
@@ -1218,7 +1425,7 @@ async function createAnotherProfile(nameText, settings) {
 /* Перший запуск → «Створити профіль»: profiles_v1 з профілем 'default' під введеною назвою + його налаштування;
    далі звичайний застосунок на вкладці «Розрахунок». */
 async function createFirstProfile(nameText, settings) {
-  ensureProfiles(localStorage);
+  ensureProfiles(localStorage, new Date(), recoveredName);
   const r = renameProfile(localStorage, DEFAULT_ID, nameText);
   if (!r.ok) return showProfileNameError(r.error);
   profileStorage(localStorage, DEFAULT_ID).setItem(GUEST_PROFILE_KEY, JSON.stringify(settings));
@@ -1243,9 +1450,24 @@ function setFirstRun(on) {
   }
 }
 
+/* Видалення профілю. Підключений — спершу вихід з його акаунта (без копіювання), потім його ключі й копії; дані в хмарі
+   не видаляються. Без Firebase вийти неможливо, тож і профіль не видаляється (інакше сесія лишилась би на пристрої). */
 async function confirmDeleteProfile() {
-  if (!profileDeleteId || signedIn) return;
-  const r = deleteProfile(localStorage, profileDeleteId);
+  const id = profileDeleteId;
+  const target = profiles.list.find(p => p.id === id);
+  if (!target || profiles.list.length <= 1 || busyApp) return;
+  const c = target.cloud;
+  if (c) {
+    if (!(await initCloud())) return showToast(dict[currentLang].toastOffline);
+    busyApp = c.appName;
+    try {
+      subscribe(c.appName);
+      await signOut(cloudApi.instance(c.appName).auth);
+      forgetAccountCopies(c.uid);
+    } catch (e) { return showToast(dict[currentLang].toastLogoutErr); }
+    finally { busyApp = null; }
+  }
+  const r = deleteProfile(localStorage, id);
   profileDeleteId = null;
   if (r.ok) await applyProfiles(r.state); else renderProfiles();
 }
@@ -1253,7 +1475,7 @@ async function confirmDeleteProfile() {
 document.getElementById('btn-profile-add').addEventListener('click', openAddProfile);
 document.getElementById('btn-profile-cancel').addEventListener('click', closeProfilePanels);
 document.getElementById('btn-profile-delete').addEventListener('click', () => {
-  if (profiles.list.length <= 1 || signedIn) return;
+  if (profiles.list.length <= 1) return;
   profileEdit = null; profileDeleteId = profiles.active; renderProfiles();
 });
 document.getElementById('btn-profile-delete-yes').addEventListener('click', confirmDeleteProfile);
@@ -1288,6 +1510,7 @@ function openCloudSheet() {
 function closeCloudSheet({ fromHistory = false } = {}) {
   if (!sheetOpen) return false;
   sheetOpen = false;
+  cancelPending();                                     // панель закрили, не вибравши, — профіль лишається локальним
   sheetEl().classList.add('hidden');
   document.getElementById('cloudBackdrop').classList.add('hidden');
   document.getElementById('app-body').classList.remove('sheet-open');
@@ -1313,19 +1536,37 @@ document.addEventListener('keydown', e => {
   else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 });
 
-/* Стан хмари для іконки й панелі: немає входу — 'out'; вхід є і синхронізовано — 'ok'; немає мережі чи помилка — 'off'. */
-let syncState = null;            // null (немає входу) | 'pending' | 'ok' | 'error'
+/* Стан хмари для іконки й панелі — активного профілю: локальний — 'out'; підключений і синхронізовано — 'ok';
+   немає мережі, помилка чи завершений сеанс — 'off'. */
+let syncState = null;            // null (локальний профіль) | 'pending' | 'ok' | 'error'
 let lastSyncAt = 0;
-function markSync(ok) {
-  if (!signedIn) return;
+function markSync(ok, uid) {
+  if (!uid || cloudUid() !== uid) return;               // відповідь іншого профілю
   syncState = ok ? 'ok' : 'error';
   if (ok) lastSyncAt = Date.now();
   renderCloud();
 }
-const cloudIconState = () => (!signedIn ? 'out' : navigator.onLine === false || syncState === 'error' ? 'off' : 'ok');
+const cloudIconState = () => {
+  const c = activeCloud();
+  if (!c) return 'out';
+  return navigator.onLine === false || syncState === 'error' || sessionExpired(c) ? 'off' : 'ok';
+};
 function renderCloud() {
   const t = dict[currentLang], state = cloudIconState();
+  const c = activeCloud(), expired = sessionExpired(c), name = profileLabel(activeProfile(profiles));
+  const view = pending ? 'merge' : c && !expired ? 'sync' : 'auth';
   document.getElementById('btn-cloud').setAttribute('data-state', state);
+  document.getElementById('auth-container').classList.toggle('hidden', view !== 'auth');
+  document.getElementById('sync-container').classList.toggle('hidden', view !== 'sync');
+  document.getElementById('merge-container').classList.toggle('hidden', view !== 'merge');
+  document.getElementById('cloudSheet').setAttribute('aria-labelledby', { auth: 'cloudOutTitle', sync: 'cloudInTitle', merge: 'cloudMergeTitle' }[view]);
+  document.getElementById('cloudOutText').textContent = expired
+    ? t.cloudExpired.replace('{email}', c.email).replace('{name}', name)
+    : firstRun ? t.cloudOutText : t.cloudConnectText.replace('{name}', name);
+  document.getElementById('btn-detach').classList.toggle('hidden', !expired);
+  document.getElementById('user-email-display').innerText = c ? c.email : '';
+  document.getElementById('cloudMergeText').textContent = pending
+    ? t.mergeText.replace('{N}', pending.remoteIds.size).replace('{M}', Object.keys(pending.local).length) : '';
   const el = document.getElementById('cloudSyncState');
   const locale = currentLang === 'pl' ? 'pl-PL' : 'uk-UA';
   let text = '';
@@ -1339,12 +1580,13 @@ function renderCloud() {
   el.classList.toggle('ok', state === 'ok' && syncState === 'ok');
 }
 window.addEventListener('offline', () => renderCloud());
-window.addEventListener('online', () => { renderCloud(); if (signedIn && syncState === 'error') probeCloud(); });
+window.addEventListener('online', () => { renderCloud(); if (activeCloud() && syncState === 'error') probeCloud(); });
 /* Мережа повернулась після помилки: перевіряємо, що хмара відповідає (поля місяця не перезавантажуємо). */
 async function probeCloud() {
-  if (!auth.currentUser || !cloudAvailable) return;
-  try { await withTimeout(getDocs(collection(db, "users", auth.currentUser.uid, "months")), SAVE_TIMEOUT_MS()); markSync(true); }
-  catch (e) { markSync(false); }
+  const c = activeCloud();
+  if (!liveUser(c)) return;
+  try { await withTimeout(readCloudMonths(c), SAVE_TIMEOUT_MS()); markSync(true, c.uid); }
+  catch (e) { markSync(false, c.uid); }
 }
 
 /* ВКЛАДКА «СТАТИСТИКА»: підсумки за період (цифри рахують ті самі calc.js + pit.js, що й калькулятор).
@@ -1462,7 +1704,7 @@ setTheme(localStorage.getItem('theme') || (window.matchMedia && matchMedia('(pre
 window.setLang(currentLang);
 switchPage(1);
 if (firstRun) setFirstRun(true);
-handleAuthState(null).finally(() => { guestReady = true; initCloud(); });
+showActiveProfile().finally(() => initCloud());
 
 /* --- СВАЙП-НАВІГАЦІЯ МІЖ ВІКНАМИ --- */
 let touchStartX = 0, touchStartY = 0;

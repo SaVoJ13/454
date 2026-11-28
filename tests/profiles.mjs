@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDom, findAll } from './fake-dom.mjs';
+import { fakeCloud } from './fake-cloud.mjs';
 import {
   PROFILES_KEY, DEFAULT_ID, AUTO_NAMES, displayName, ensureProfiles, readProfiles, activeProfile, checkName, createProfile, renameProfile,
   deleteProfile, setActiveProfile, profileStorage, profileKeys
@@ -106,7 +107,12 @@ const existing = {
   // пошкоджений profiles_v1 → знову один 'default' (дані без префікса не чіпаються)
   st.setItem(PROFILES_KEY, '{зламано');
   assert.equal(readProfiles(st), null);
-  assert.equal(ensureProfiles(st).active, DEFAULT_ID);
+  // з 1.21.0: ключі prof_<id>__… є — профілі відновлюються, дані не ховаються ('default' без своїх ключів не додається)
+  const restored = ensureProfiles(st);
+  assert.deepEqual(restored.list.map(p => [p.id, p.name]), [[rest[0].id, 'Відновлений профіль 1']]);
+  assert.equal(restored.active, rest[0].id);
+  const empty = memStorage({ [PROFILES_KEY]: '{зламано', lang: 'uk' });
+  assert.equal(ensureProfiles(empty).active, DEFAULT_ID, 'без ключів prof_ — один default');
 }
 
 // ---------- 2b. Автоматична назва (1.19.1): міграція, показ мовою інтерфейсу, унікальність ----------
@@ -158,19 +164,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const { dict } = await import('../js/i18n.js');
 const money = v => new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' }).format(v);
 
-const cloud = new Map();
-let authCb = null;
-const auth = { currentUser: null };
-const stub = {
-  auth, db: {}, onAuthStateChanged: (_a, cb) => { authCb = cb; },
-  signInWithEmailAndPassword: async () => {}, createUserWithEmailAndPassword: async () => {}, sendPasswordResetEmail: async () => {},
-  signOut: async a => { a.currentUser = null; await authCb(null); },
-  doc: (_db, ...p) => ({ path: p.join('/') }), collection: (_db, ...p) => ({ path: p.join('/') }),
-  getDoc: async ref => { const d = cloud.get(ref.path); return { exists: () => !!d, data: () => d }; },
-  setDoc: async (ref, data) => { cloud.set(ref.path, { ...cloud.get(ref.path), ...data }); },
-  getDocs: async ref => ({ forEach(cb) { for (const [p, d] of cloud) if (p.startsWith(ref.path + '/')) cb({ id: p.slice(ref.path.length + 1), data: () => d }); } })
-};
-globalThis.__salaryTest = { cloudLoader: async () => stub, now: new Date(2026, 11, 15, 12).getTime() };
+const fc = fakeCloud();
+const cloud = fc.docs;
+globalThis.__salaryTest = { cloudLoader: async () => fc.stub, now: new Date(2026, 11, 15, 12).getTime() };
 console.warn = () => {};
 
 // оновлення зі старої версії: гостьові дані вже є, profiles_v1 ще немає
@@ -223,7 +219,7 @@ assert.deepEqual(listNames(), ['Mój profil'], 'PL: список'); assert.equal
 window.setLang('uk');
 assert.deepEqual(listNames(), ['Мій профіль'], 'UA: список'); assert.equal(getEl('whoBadge').textContent, 'Мій профіль', 'UA: шапка');
 assert.equal(hidden('btn-profile-delete'), true, 'один профіль — кнопки «Видалити профіль» немає');
-assert.equal(hidden('profilesLocal'), false); assert.equal(hidden('profilesSignedIn'), true);
+assert.equal(hidden('profilesLocal'), false); assert.ok(!html.includes('profilesSignedIn'), 'примітки «локальні профілі після виходу» більше немає');
 assert.equal(getEl('profileName').value, dict.uk.profileDefaultName, 'у полі «Назва» — назва активного профілю');
 assert.equal(getEl('btn-save-profile').textContent, dict.uk.profileNameSave);
 // «i»: пояснення згорнуте, дотик розгортає й згортає
@@ -389,8 +385,12 @@ window.switchPage(1);
 // 3g. Вхід в акаунт із тими самими записами в хмарі: ті самі числа; профілі не діють
 for (const [id, d] of Object.entries(records)) cloud.set(`users/u1/months/${id}`, { ...d });
 cloud.set('users/u1/profile/userProfile', { ...profile });   // у хмарі той самий (старий) профіль, що й локальний
-auth.currentUser = { uid: 'u1', email: 'user@example.com' };
-await authCb(auth.currentUser); await sleep(40);
+const localKeys = () => Object.fromEntries([...store].filter(([k]) => /^(prof_|guest_month_|user_profile_guest)/.test(k)));
+const keysBefore = localKeys();
+fc.auth().currentUser = { uid: 'u1', email: 'user@example.com' };    // вхід, що лишився від 1.20.1 ([DEFAULT])
+await fc.emit('[DEFAULT]'); await sleep(60);
+assert.deepEqual(localKeys(), keysBefore, 'перенесення входу не змінює жодного локального ключа');
+const accountId = profilesState().active;
 await select('2026-11'); await select('2026-12');
 assert.equal(getEl('urlopBonus').value, local.urlop, 'акаунт: та сама «Сер. за 1 дн.»');
 assert.equal(globalThis.cachedL4DailyRate, local.rate, 'акаунт: та сама ставка L4');
@@ -403,29 +403,32 @@ window.switchPage(1);
 assert.equal(body.classList.contains('is-logged-in'), true); assert.equal(body.classList.contains('full-features'), true);
 assert.equal(hidden('auth-container'), true); assert.equal(hidden('sync-container'), false);
 assert.equal(hidden('cloudOnly1'), false, 'хмарні кнопки — після входу');
-assert.deepEqual(listNames(), ['user@example.com'], 'замість локальних профілів — одна пігулка з email акаунта');
-assert.deepEqual(pressed(), ['user@example.com']); assert.equal(getEl('profileList').children[0].handlers.click, undefined, 'пігулка акаунта нічого не перемикає');
-assert.equal(hidden('btn-profile-add'), true, '«+» схований'); assert.equal(hidden('profileNameRow'), true, 'поля «Назва» немає');
-assert.equal(hidden('btn-profile-delete'), true);
-assert.equal(hidden('profilesSignedIn'), false);
-assert.equal(getEl('profilesSignedIn').innerText, dict.uk.profilesSignedIn.replace('{email}', 'user@example.com'));
-assert.equal(getEl('whoBadge').textContent, 'user@example.com', 'у шапці — email акаунта');
-window.setLang('pl');
-assert.equal(getEl('profilesSignedIn').innerText, 'Zalogowano na konto user@example.com. Profile lokalne są dostępne po wylogowaniu.');
-window.setLang('uk');
-// збереження місяця акаунта не пише в локальний профіль
-const localBefore = store.get('guest_month_2026-12');
+assert.deepEqual(listNames(), ['Я', 'Дружина', 'user'], 'локальні профілі лишаються доступними; новий — з назвою з email');
+assert.deepEqual(pressed(), ['user']); assert.equal(hidden('btn-profile-add'), false); assert.equal(hidden('profileNameRow'), false);
+assert.deepEqual(profileOf('user').cloud, { uid: 'u1', email: 'user@example.com', appName: '[DEFAULT]' });
+assert.equal(getEl('whoBadge').textContent, 'user', 'у шапці — назва активного профілю, не email');
+const cloudMark = i => findAll(getEl('profileList').children[i], n => String(n.attrs && n.attrs.class).includes('pill-cloud')).length;
+assert.deepEqual([0, 1, 2].map(cloudMark), [0, 0, 1], 'хмарка — лише в підключеного профілю');
+// збереження місяця акаунта не пише в локальні профілі
 await type('morningShifts', '3');
-assert.equal(store.get('guest_month_2026-12'), localBefore, 'з акаунтом локальні місяці не змінюються');
+assert.deepEqual(localKeys(), keysBefore, 'з акаунтом локальні місяці не змінюються');
+// перемикання на локальний профіль і назад — без входу
+await getEl('profileList').children[0].handlers.click[0](); await sleep(60);
+assert.equal(getEl('morningShifts').value, '16'); assert.equal(body.classList.contains('is-logged-in'), false); assert.equal(hidden('cloudOnly1'), true);
+assert.equal(getEl('netResult').innerText, local.net);
+await getEl('profileList').children[2].handlers.click[0](); await sleep(60);
+assert.equal(getEl('netResult').innerText, local.net, 'знову дані акаунта'); assert.equal(body.classList.contains('is-logged-in'), true);
+assert.equal(fc.calls.signIn.length + fc.calls.signOut.length, 0, 'перемикання не входить і не виходить');
 
-// 3h. Вихід: повертається активний локальний профіль
+// 3h. Вихід: профіль лишається з даними й стає локальним; інші профілі без змін
 await fire(getEl('btn-logout'), 'click'); await sleep(60);
 assert.equal(body.classList.contains('is-logged-in'), false);
-assert.equal(getEl('whoBadge').textContent, 'Я', 'після виходу — назва активного локального профілю');
-assert.equal(hidden('profilesLocal'), false); assert.equal(hidden('profilesSignedIn'), true);
-assert.deepEqual(listNames(), ['Я', 'Дружина'], 'після виходу — знову локальні профілі'); assert.equal(hidden('btn-profile-add'), false); assert.equal(hidden('profileNameRow'), false);
-assert.equal(getEl('morningShifts').value, '16', 'місяць локального профілю відновлено');
-assert.equal(getEl('netResult').innerText, local.net, 'числа локального профілю ті самі, що до входу');
+assert.equal(getEl('whoBadge').textContent, 'user'); assert.equal(profileOf('user').cloud, undefined);
+for (const [k, v] of Object.entries(keysBefore)) assert.equal(store.get(k), v, `${k} не змінено`);
+assert.equal(Object.keys(readGuestRecords(profileStorage(localStorage, accountId))).length, 12, 'місяці акаунта скопійовано');
+assert.equal(getEl('netResult').innerText, local.net, 'числа ті самі після виходу');
+await getEl('profileList').children[0].handlers.click[0](); await sleep(60);
+assert.equal(getEl('morningShifts').value, '16', 'місяць локального профілю на місці');
 
 // 3i. Видалення у два кроки на сторінці
 await getEl('profileList').children[1].handlers.click[0](); await sleep(60);
@@ -437,7 +440,7 @@ window.setLang('pl');
 assert.equal(getEl('profileDeleteText').innerText, 'Usunąć profil „Дружина” i wszystkie jego miesiące? Tego nie można cofnąć.');
 window.setLang('uk');
 await click('btn-profile-delete-no');
-assert.equal(hidden('profileDelete'), true); assert.equal(hidden('profileFoot'), false); assert.equal(profilesState().list.length, 2, '«Скасувати» нічого не видаляє');
+assert.equal(hidden('profileDelete'), true); assert.equal(hidden('profileFoot'), false); assert.equal(profilesState().list.length, 3, '«Скасувати» нічого не видаляє');
 assert.ok(store.has(`prof_${wife.id}__guest_month_2026-06`));
 const globals = ['lang', 'theme', PROFILES_KEY].filter(k => store.has(k));
 await click('btn-profile-delete'); await click('btn-profile-delete-yes');
@@ -445,9 +448,12 @@ assert.deepEqual([...store.keys()].filter(k => k.startsWith(`prof_${wife.id}__`)
 assert.equal(Object.keys(readGuestRecords(profileStorage(localStorage, DEFAULT_ID))).length, 12, 'місяці іншого профілю на місці');
 for (const k of globals) assert.ok(store.has(k), `спільний ${k} на місці`);
 assert.equal(profilesState().active, DEFAULT_ID, 'активним став перший профіль');
-assert.deepEqual(listNames(), ['Я']); assert.equal(hidden('btn-profile-delete'), true, 'лишився один — кнопки «Видалити профіль» немає');
+assert.deepEqual(listNames(), ['Я', 'user']); assert.equal(hidden('btn-profile-delete'), false);
 assert.equal(getEl('whoBadge').textContent, 'Я');
 assert.equal(getEl('morningShifts').value, '16', 'після видалення активного одразу відкрито дані першого');
+await getEl('profileList').children[1].handlers.click[0](); await sleep(60);
+await click('btn-profile-delete'); await click('btn-profile-delete-yes');
+assert.deepEqual(listNames(), ['Я']); assert.equal(hidden('btn-profile-delete'), true, 'лишився один — кнопки «Видалити профіль» немає');
 
 console.log('OK: профілі (перший запуск без переносу, автоназва UA/PL і міграція, пігулки, «+»/«Скасувати», назва в полі «Назва», повзунки yes/no, створення/назви/видалення, ізоляція, PIT/L4/відпускні без входу = акаунт, вхід і вихід)');
 process.exit(0);
